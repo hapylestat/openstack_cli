@@ -45,9 +45,14 @@ class StoragePropertyType(Enum):
 
 
 class StorageProperty(object):
-  def __init__(self, name: str, property_type: str, value: str or dict):
+  def __init__(self, name: str = "", property_type: StoragePropertyType = StoragePropertyType.text or str,
+               value: str = "" or dict):
+
     self.__name: str = name
-    self.__property_type: StoragePropertyType = StoragePropertyType.from_string(property_type)
+    if isinstance(property_type, StoragePropertyType):
+      self.__property_type: StoragePropertyType = property_type
+    else:
+      self.__property_type: StoragePropertyType = StoragePropertyType.from_string(property_type)
     self.__value: str or dict = value
 
   @property
@@ -91,40 +96,54 @@ class SQLStorage(BaseStorage):
       self.initialize_key()
 
   def initialize_key(self):
-    key = self._load_secret_key()
+    persist = os.path.exists(self.secret_file_path)
+    key = self._load_secret_key(persist=persist)
     self.__fernet: Fernet or None = Fernet(key) if key else None
 
-  def _load_secret_key(self, persist: bool = False) -> str or None:
-    def store_key(_key: bytes):
-      with open(self.secret_file_path, "wb") as f:
-        f.write(key)
+  def reset(self):
+    if self._db_connection:
+      self._db_connection.close()
 
-    key_persisted = os.path.exists(self.secret_file_path)
-    if not persist and not key_persisted:
-      pw1 = getpass("Master password: ")
-      key = self._generate_key(pw1)
-      if not pw1:  # persist password-less key
-        print("[I] Password-less mode selected, the key would be persisted and password not asked again")
-        store_key(key)
-      return key
-    elif not persist and key_persisted:
-      pass
-    elif persist and not key_persisted:
-      print("[W] No master password is set, creating new encryption key...")
+    if os.path.exists(self.secret_file_path):
+      os.remove(self.secret_file_path)
+
+    if os.path.exists(self.configuration_file_path):
+      os.remove(self.configuration_file_path)
+
+  def create_key(self, persist: bool, master_password: str):
+    if persist and master_password is None:
+      print("Notice: With no password set would be generated default PC-depended encryption key")
       pw1 = getpass("Set master password (leave blank for no password): ")
       pw2 = getpass("Verify password: ")
       if pw1 != pw2:
         raise RuntimeError("Passwords didn't match!")
+      master_password = pw1
 
+    if os.path.exists(self.secret_file_path):
+      print("Resetting already existing encryption key")
+      self.reset()
+
+    if master_password is not None and not master_password:  # i.e. pass = ""
+      persist = True
+
+    if persist:
       print("Generating key, please wait...")
-      key = self._generate_key(pw1)
+      key = self._generate_key(master_password)
+      with open(self.secret_file_path, "wb") as f:
+        f.write(key)
 
-      store_key(key)
       print(f"Key saved to {self.secret_file_path}, keep it save")
-      return key
 
-    with open(self.secret_file_path, "r") as f:
-      return f.readline().strip(os.linesep)
+  def _load_secret_key(self, persist: bool = False) -> str or None:
+    if persist and not os.path.exists(self.secret_file_path):
+      raise RuntimeError("Master key is not found, please re-configure tool")
+
+    if not persist:
+      pw1 = getpass("Master password: ")
+      return self._generate_key(pw1)
+    else:
+      with open(self.secret_file_path, "r") as f:
+        return f.readline().strip(os.linesep)
 
   def _generate_key(self, password: str) -> bytes:
     import platform
@@ -157,7 +176,7 @@ class SQLStorage(BaseStorage):
       try:
         return self.__fernet.decrypt(value).decode("utf-8")
       except InvalidToken:
-        raise RuntimeError("User key is invalid, unable to decrypt configuration data")
+        raise ValueError("Provided key is invalid, unable to decrypt encrypted data")
     return value
 
   def _query(self,
@@ -212,15 +231,15 @@ class SQLStorage(BaseStorage):
     self.execute_script(sql)
     self.__tables.append(table)
 
-  def get_property(self, table: str, name: str) -> StorageProperty or None:
+  def get_property(self, table: str, name: str, default=StorageProperty()) -> StorageProperty:
     if table not in self.__tables:
-      return None
+      return default
 
     func: Callable[[sqlite3.Cursor], List[str] or None] = lambda x: x.fetchone()
 
     result_set = self._query(f"select type, store from {table} where name=?;", [name], func)
     if not result_set:
-      return None
+      return default
 
     p_type, p_value = result_set
     pt_type = StoragePropertyType.from_string(p_type)
@@ -253,6 +272,10 @@ class SQLStorage(BaseStorage):
     else:
       self._query(f"insert into {table} (store, type, name) values (?,?,?);", args, commit=True)
 
+  def set_text_property(self, table: str, name: str, value, encrypted: bool = False):
+     p = StorageProperty(name, StoragePropertyType.text, value)
+     self.set_property(table, p, encrypted)
+
   def property_existed(self, table: str, name: str):
-    result_set = self._query(f"select store from {table} where name=?;", [table])
+    result_set = self._query(f"select store from {table} where name=?;", [name])
     return True if result_set else False

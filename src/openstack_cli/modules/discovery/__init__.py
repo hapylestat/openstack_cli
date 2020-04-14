@@ -16,6 +16,7 @@
 import asyncio
 import os
 import sys
+from typing import List
 
 from openstack_cli.modules.discovery.arguments import CommandLineOptions
 from openstack_cli.modules.discovery.commands import CommandMetaInfo, NoCommandException, CommandArgumentException, \
@@ -107,6 +108,14 @@ class CommandsDiscovery(object):
           cmd_help=cmd_meta.help
         )
     return help_str
+
+  @property
+  def command_name(self) -> str or None:
+    return self._options.args[0] if self._options.args else None
+
+  @property
+  def command_arguments(self) -> List[str]:
+    return self._options.args[1:] if self._options.args else []
 
   def _get_command(self, injected_args: dict = None, fail_on_unknown: bool = False) -> CommandModule:
     if not self._options.args:

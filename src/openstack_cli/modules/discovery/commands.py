@@ -218,7 +218,7 @@ class CommandModule(object):
     if not injected_args:
       injected_args = set()
 
-    args = self.__meta_info.transform_default_arguments(args[1:], fail_on_unknown=fail_on_unknown)
+    args = self.__meta_info.transform_default_arguments(args, fail_on_unknown=fail_on_unknown)
     args.update(self.__meta_info.transform_arguments(kwargs, fail_on_unknown=fail_on_unknown))
 
     f_args = self.entry_point_args

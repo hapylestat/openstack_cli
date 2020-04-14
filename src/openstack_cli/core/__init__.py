@@ -20,6 +20,11 @@ from openstack_cli.modules.config import Configuration
 
 def main_entry():
   conf: Configuration = Configuration()
+  if commands.discovery.command_name == "conf" and commands.discovery.command_arguments[:1] == "reset":
+    pass
+  else:
+    conf.initialize()
+
   commands.discovery.start_application(kwargs={
     "conf": conf
   })

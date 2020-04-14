@@ -12,21 +12,24 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 from openstack_cli.modules.config import Configuration
 from openstack_cli.modules.discovery import CommandMetaInfo
-from openstack_cli.modules.config.storage import SQLStorage, StorageProperty
 
 
 __module__ = CommandMetaInfo("conf")
 __args__ = __module__.get_arguments_builder()\
-  .add_default_argument("sub_command", str, "name of the sub-command", default="help")\
-  .add_argument("test", int, "test value", 3)
+  .add_default_argument("sub_command", str, "name of the sub-command", default="help")
 
 
-def __init__(conf: Configuration, sub_command: str, test: int):
-  print(f"Sub command: {sub_command}")
-  print(f"Args: {test}")
-  print(f"Conf: {conf}")
+def __init__(conf: Configuration, sub_command: str):
+  if sub_command == "reset":
+    conf.reset()
+    print("Configuration reset completed")
+    return
+
+  print(f"Address: {conf.os_address}, login: {conf.os_login} and pass: {conf.os_password}")
+
   # conf = SQLStorage()
   # a = conf.get_property("general", "option")
   # b = conf.get_property("general", "enc")
