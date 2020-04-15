@@ -13,23 +13,3 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
-from openstack_cli import commands
-from openstack_cli.modules.config import Configuration
-
-
-def main_entry():
-  conf: Configuration = Configuration()
-  # currently hack to avoid key generating on reset command
-  if commands.discovery.command_name == "conf" and commands.discovery.command_arguments[:1] == "reset":
-    pass
-  else:
-    conf.initialize()
-
-  commands.discovery.start_application(kwargs={
-    "conf": conf
-  })
-
-
-if __name__ == "__main__":
-  main_entry()

@@ -150,7 +150,9 @@ class CommandMetaInfo(object):
 
     default_args_count = len([item for item in default_arguments if item.default])
 
-    if not self._arguments.has_optional_default_argument \
+    if real_length == 0 and expected_length == 0:
+      return parsed_arguments_dict
+    elif not self._arguments.has_optional_default_argument \
       and (not argv or expected_length != real_length) \
       or (fail_on_unknown and real_length > expected_length):
 

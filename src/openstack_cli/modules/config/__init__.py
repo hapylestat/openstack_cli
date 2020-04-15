@@ -15,6 +15,7 @@
 
 import sys
 from getpass import getpass
+
 from openstack_cli.modules.config.storage import SQLStorage, StorageProperty, StoragePropertyType
 
 
