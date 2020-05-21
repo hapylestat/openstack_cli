@@ -118,9 +118,25 @@ class Configuration(object):
   def __test_encrypted_property(self):
     return self.__storage.get_property(self.__options_table, "enctest", StorageProperty()).value
 
+  @property
+  def auth_token(self):
+    return self.__storage.get_property(self.__options_table, "auth_token").value
+
+  @auth_token.setter
+  def auth_token(self, value: str):
+    self.__storage.set_text_property(self.__options_table, "auth_token", value, True)
+
   @__test_encrypted_property.setter
   def __test_encrypted_property(self, value):
     self.__storage.set_text_property(self.__options_table, "enctest", value, encrypted=True)
+
+  @property
+  def interface(self):
+    return "public"
+
+  @property
+  def region(self):
+    return "RegionOne"
 
   def __initial_configuration(self):
     print("""

@@ -19,30 +19,29 @@ import base64
 import gzip
 import zlib
 import re
+from enum import Enum
 
-if sys.version_info.major == 3:
-  from urllib.request import HTTPPasswordMgrWithDefaultRealm, HTTPBasicAuthHandler, Request, build_opener
-  from urllib.parse import urlencode
-  from io import BytesIO
-  try:
-    from urllib.request import URLError, HTTPError
-  except ImportError:
-    from urllib.error import URLError, HTTPError
-else:
-  from urllib2 import HTTPPasswordMgrWithDefaultRealm, HTTPBasicAuthHandler, Request, build_opener, URLError, HTTPError
-  from urllib import urlencode
-  from StringIO import StringIO as BytesIO
+from typing import Dict
+from http.client import HTTPResponse
+from urllib.request import HTTPPasswordMgrWithDefaultRealm, HTTPBasicAuthHandler, Request, build_opener
+from urllib.parse import urlencode
+from io import BytesIO
+try:
+  from urllib.request import URLError, HTTPError
+except ImportError:
+  from urllib.error import URLError, HTTPError
 
-  class TimeoutError(RuntimeError):
-    pass
+
+class CurlRequestType(Enum):
+  GET = "GET"
+  POST = "POST"
+  PUT = "PUT"
+  DELETE = "DELETE"
 
 
 class CURLResponse(object):
-  def __init__(self, director_open_result, is_stream=False):
-    """
-    :type director_open_result http.client.HTTPResponse
-    """
-    self._code = director_open_result.code
+  def __init__(self, director_open_result: HTTPResponse or HTTPError, is_stream: bool = False):
+    self._code: int = director_open_result.getcode()
     self._headers = director_open_result.info()
     self._is_stream = is_stream
     self._director_result = director_open_result
@@ -50,7 +49,7 @@ class CURLResponse(object):
     if not self._is_stream:
       self._content = director_open_result.read()
 
-  def __decode_response(self, data):
+  def __decode_response(self, data: bytes or str) -> str:
     data = self.__decode_compressed(data)
     if isinstance(data, bytes) and "Content-Type" in self._headers and "charset" in self._headers["Content-Type"]:
       charset = list(filter(lambda x: "charset" in x, self._headers["Content-Type"].split(';')))
@@ -64,7 +63,7 @@ class CURLResponse(object):
     else:
       return data
 
-  def __decode_compressed(self, data):
+  def __decode_compressed(self, data: bytes or str):
     if isinstance(data, bytes) and "Content-Encoding" in self._headers:
 
       if "gzip" in self._headers["Content-Encoding"] or 'x-gzip' in self._headers["Content-Encoding"]:
@@ -210,7 +209,10 @@ def __parse_content(data):
   return response_data, response_headers
 
 
-def curl(url, params=None, auth=None, req_type='GET', data=None, headers=None, timeout=None, use_gzip=True, use_stream=False):
+def curl(url: str, params: Dict[str, str] = None, auth: CURLAuth = None,
+         req_type: CurlRequestType = CurlRequestType.GET, data: str or bytes or dict = None,
+         headers: Dict[str, str] = None, timeout: int = None, use_gzip: bool = True,
+         use_stream: bool = False) -> CURLResponse:
   """
   Make request to web resource
 
@@ -224,19 +226,9 @@ def curl(url, params=None, auth=None, req_type='GET', data=None, headers=None, t
   :param use_gzip: Accept gzip and deflate response from the server
   :param use_stream: Do not parse content of response ans stream it via raw property
   :return Response object
-
-  :type url str
-  :type params dict
-  :type auth CURLAuth
-  :type req_type str
-  :type headers dict
-  :type timeout int
-  :type use_gzip bool
-  :type use_stream bool
-  :rtype CURLResponse
   """
-  post_req = ["POST", "PUT"]
-  get_req = ["GET", "DELETE"]
+  post_req = [CurlRequestType.POST, CurlRequestType.PUT]
+  get_req = [CurlRequestType.GET, CurlRequestType.DELETE]
 
   if params is not None:
     url += "?" + urlencode(params)
@@ -277,15 +269,15 @@ def curl(url, params=None, auth=None, req_type='GET', data=None, headers=None, t
 
   director = build_opener(*handler_chain)
   req = Request(url, **req_args)
-  req.get_method = lambda: req_type
+  req.get_method = lambda: req_type.value
 
   try:
     if timeout is not None:
       return CURLResponse(director.open(req, timeout=timeout), is_stream=use_stream)
     else:
       return CURLResponse(director.open(req), is_stream=use_stream)
-  except URLError as e:
+  except URLError or HTTPError as e:
     if isinstance(e, HTTPError):
-      raise e
+      return CURLResponse(e, is_stream=use_stream)
     else:
       raise TimeoutError

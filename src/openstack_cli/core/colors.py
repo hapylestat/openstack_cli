@@ -13,19 +13,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from openstack_cli.modules.config import Configuration
-from openstack_cli.modules.discovery import CommandMetaInfo
+import sys
+
+if sys.platform == "win32":
+  import ctypes
+
+  kernel32 = ctypes.windll.kernel32
+  kernel32.SetConsoleMode(kernel32.GetStdHandle(-11), 7)
 
 
-__module__ = CommandMetaInfo("conf")
-__args__ = __module__.get_arguments_builder()\
-  .add_default_argument("sub_command", str, "name of the sub-command", default="help")
-
-
-def __init__(conf: Configuration, sub_command: str):
-  if sub_command == "reset":
-    conf.reset()
-    print("Configuration reset completed")
-    return
-
-  print("Keep watching for the new features, thanks :) ")
+class Colors(object):
+  RED = "\033[0;91m"
+  YELLOW = "\033[0;93m"
+  GREEN = "\033[0;92m"
+  RESET = "\033[0m"

@@ -16,16 +16,12 @@
 from openstack_cli.modules.config import Configuration
 from openstack_cli.modules.discovery import CommandMetaInfo
 
+__module__ = CommandMetaInfo("list")
 
-__module__ = CommandMetaInfo("conf")
-__args__ = __module__.get_arguments_builder()\
-  .add_default_argument("sub_command", str, "name of the sub-command", default="help")
+from openstack_cli.modules.openstack import OpenStack
+from openstack_cli.modules.openstack.objects import ServerPowerState
 
 
-def __init__(conf: Configuration, sub_command: str):
-  if sub_command == "reset":
-    conf.reset()
-    print("Configuration reset completed")
-    return
-
-  print("Keep watching for the new features, thanks :) ")
+def __init__(conf: Configuration):
+  ostack = OpenStack(conf)
+  print(ostack.servers)

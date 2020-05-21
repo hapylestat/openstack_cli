@@ -46,13 +46,15 @@ class StoragePropertyType(Enum):
 
 class StorageProperty(object):
   def __init__(self, name: str = "", property_type: StoragePropertyType = StoragePropertyType.text or str,
-               value: str = "" or dict):
+               value: str or dict = ""):
 
     self.__name: str = name
     if isinstance(property_type, StoragePropertyType):
       self.__property_type: StoragePropertyType = property_type
-    else:
+    elif isinstance(property_type, str):
       self.__property_type: StoragePropertyType = StoragePropertyType.from_string(property_type)
+    else:
+      self.__property_type: StoragePropertyType = StoragePropertyType.text
     self.__value: str or dict = value
 
   @property

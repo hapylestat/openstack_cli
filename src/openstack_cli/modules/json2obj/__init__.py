@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import json
+from typing import List
 
 
 class SerializableObject(object):
@@ -68,6 +69,7 @@ class SerializableObject(object):
     if serialized_obj is not None:
       if self.__class__ is serialized_obj.__class__:
         self.__dict__ = serialized_obj.__dict__
+        self.__annotations__ = serialized_obj.__annotations__
       else:
         self.deserialize(serialized_obj)
         self.clean()
@@ -93,23 +95,48 @@ class SerializableObject(object):
         self.__setattr__(item, [])
 
   def deserialize(self, d: dict):
+    errors = []
     if isinstance(d, dict):
       for k, v in d.items():
+        if isinstance(k, str):  # hack, change variable name from a.b.c to a_b_c
+          # ToDo: add some kind of annotation to make such conversion smoother
+          k = k\
+            .replace(".", "_")\
+            .replace("-", "_")\
+            .replace(":", "_")
+
         if k not in self.__class__.__dict__:
-          raise RuntimeError(self.__class__.__name__ + " doesn't contain property " + k)
-        attr_type = self.__class__.__dict__[k]
-        if isinstance(attr_type, list) and len(attr_type) > 0 and issubclass(attr_type[0], SerializableObject):
+          t = "object" if not v else v.__class__.__name__
+          errors.append(f"{self.__class__.__name__} doesn't contain property {k}: {t} (sample:{v})")
+          continue
+        elif k not in self.__class__.__annotations__:
+          errors.append(f"{self.__class__.__name__} doesn't contain type annotation in the definition {k}")
+          continue
+
+        attr_type = self.__class__.__annotations__[k]
+        is_annotated = "_GenericAlias" in attr_type.__class__.__name__
+        if is_annotated:
+          name = attr_type.__dict__["_name"].lower()
+          attr_args = attr_type.__dict__["__args__"]
+        else:
+          name = attr_type.__class__.__name__
+          attr_args = [attr_type[0]] if name == list else [attr_type]
+
+        if name == "list" and len(attr_args) > 0 and issubclass(attr_args[0], SerializableObject):
           obj_list = []
-          if isinstance(v, list):
+          if isinstance(v, list) or isinstance(v, List):
             for vItem in v:
-              obj_list.append(attr_type[0](vItem))
+              obj_list.append(attr_args[0](vItem))
           else:
-            obj_list.append(attr_type[0](v))
+            obj_list.append(attr_args[0](v))
           self.__setattr__(k, obj_list)
-        elif self.__isclass(attr_type) and issubclass(attr_type, SerializableObject):
-          self.__setattr__(k, attr_type(v))
+        elif self.__isclass(attr_args[0]) and issubclass(attr_args[0], SerializableObject):
+          self.__setattr__(k, attr_args[0](v))
         else:
           self.__setattr__(k, v)
+
+      if errors:
+        raise ValueError("A number of errors happen:  \n" + "\n".join(errors))
 
   def serialize(self) -> dict:
     ret = {}
