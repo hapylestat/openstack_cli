@@ -12,14 +12,15 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
+import collections
 from typing import Dict, List
 
 from openstack_cli.modules.config import Configuration
-from openstack_cli.modules.curl import curl, CURLResponse, CurlRequestType
+from openstack_cli.modules.curl import curl, CurlRequestType
 from openstack_cli.modules.openstack.api_objects import LoginResponse, ComputeLimits, VolumeV3Limits, DiskImages, \
-  DiskImageInfo, ComputeServers, NetworkLimits
-from openstack_cli.modules.openstack.objects import OpenStackEndpoints, EndpointTypes, OpenStackQuotas, ImageStatus
+  DiskImageInfo, ComputeServers, NetworkLimits, ComputeFlavors, ComputeFlavorItem
+from openstack_cli.modules.openstack.objects import OpenStackEndpoints, EndpointTypes, OpenStackQuotas, ImageStatus, \
+  OpenStackUsers, OpenStackVM, OpenStackVMInfo
 
 
 class OpenStack(object):
@@ -27,11 +28,18 @@ class OpenStack(object):
     self.__login_api = conf.os_address
     self._conf = conf
     self.__endpoints__: OpenStackEndpoints or None = None
+    self.__cache_images: Dict[str, DiskImageInfo] = {}
+    self.__users_cache: OpenStackUsers or None = None
+    self.__flavors_cache: Dict[str, ComputeFlavorItem] or None = None
 
     if conf.auth_token and self.__check_token():
       pass
     else:
       self.__auth()
+
+    # getting initial data / ToDo: cache them permanently in db-cache
+    a = self.images
+    a = self.flavors
 
   def __check_token(self) -> bool:
     headers = {
@@ -118,21 +126,24 @@ class OpenStack(object):
 
     return content
 
-  def get_images(self,
-                 status: ImageStatus or List[ImageStatus] or None = None,
-                 tag: str or List[str] or None = None,
-                 id: str or List[str] or None = None,
-                 name: str or List[str] or None = None
-                 ):
-    pass
+  @property
+  def users(self) -> OpenStackUsers:
+    if self.__users_cache:
+      return self.__users_cache
+
+    self.__users_cache = OpenStackUsers(self.images)
+    return self.__users_cache
 
   @property
   def images(self) -> List[DiskImageInfo]:
+    if self.__cache_images:
+      return list(self.__cache_images.values())
+
     params = {
       "limit": "1000"
     }
 
-    return DiskImages(
+    images = DiskImages(
       serialized_obj=self.__request(
         EndpointTypes.image,
         "/v2/images",
@@ -141,6 +152,19 @@ class OpenStack(object):
         params=params
       )
     ).images
+
+    self.__cache_images = {img.id: img for img in images}
+
+    return list(self.__cache_images.values())
+
+  def get_image(self, image_id: str) -> DiskImageInfo or None:
+    if not self.__cache_images:
+      a = self.images
+
+    if image_id in self.__cache_images:
+      return self.__cache_images[image_id]
+
+    return None
 
   @property
   def quotas(self) -> OpenStackQuotas:
@@ -158,7 +182,7 @@ class OpenStack(object):
     #   )
     # )
     quotas = OpenStackQuotas()
-    quotas.add("CPU", limits_obj.maxTotalCores, limits_obj.totalCoresUsed)
+    quotas.add("CPU_CORES", limits_obj.maxTotalCores, limits_obj.totalCoresUsed)
     quotas.add("RAM_GB", limits_obj.maxTotalRAMSize / 1024, limits_obj.totalRAMUsed / 1024)
     quotas.add("INSTANCES", limits_obj.maxTotalInstances, limits_obj.totalInstancesUsed)
     quotas.add("NET_PORTS", network_obj.port.limit, network_obj.port.used)
@@ -169,16 +193,51 @@ class OpenStack(object):
     return quotas
 
   @property
-  def servers(self):
+  def flavors(self) -> List[ComputeFlavorItem]:
+    if self.__flavors_cache:
+      return list(self.__flavors_cache.values())
+
     params = {
       "limit": "1000"
     }
-    r = ComputeServers(serialized_obj=self.__request(
+    flavors_raw = self.__request(
+      EndpointTypes.compute,
+      "/flavors/detail",
+      is_json=True,
+      params=params,
+      page_collection_name="flavors"
+    )
+    self.__flavors_cache = {flavor.id: flavor for flavor in ComputeFlavors(serialized_obj=flavors_raw).flavors}
+    return list(self.__flavors_cache.values())
+
+  @property
+  def servers(self) -> OpenStackVM:
+    params = {
+      "limit": "1000"
+    }
+    servers_raw = self.__request(
       EndpointTypes.compute,
       "/servers/detail",
       is_json=True,
       params=params,
       page_collection_name="servers"
-    ))
+    )
+    servers = ComputeServers(serialized_obj=servers_raw).servers
 
-    return r
+    return OpenStackVM(servers, self.users, self.__cache_images, self.__flavors_cache)
+
+  def get_server_by_cluster(self, search_pattern: str = "", sort: bool = False) -> Dict[str, List[OpenStackVMInfo]]:
+    _servers: Dict[str, List[OpenStackVMInfo]] = {}
+    for server in self.servers:
+      if search_pattern and search_pattern not in server.cluster_name:
+        continue
+
+      if server.cluster_name not in _servers:
+        _servers[server.cluster_name] = []
+
+      _servers[server.cluster_name].append(server)
+
+    if sort:
+      _servers = collections.OrderedDict(sorted(_servers.items()))
+    return _servers
+

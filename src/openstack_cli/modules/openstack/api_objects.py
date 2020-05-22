@@ -238,6 +238,12 @@ class ComputeServerAddress(SerializableObject):
   PROVIDER_NET: List[ComputeServerAddressInfo] = []
 
 
+class ComputeServerFault(SerializableObject):
+  message: str = None
+  code: int = None
+  created: str = None
+
+
 class ComputeServerInfo(SerializableObject):
   OS_EXT_STS_task_state: str = None
   OS_EXT_STS_vm_state: str = None
@@ -266,10 +272,32 @@ class ComputeServerInfo(SerializableObject):
   links: List[Links] = []
   image: OpenStackRelation = None
   addresses: ComputeServerAddress = None
+  fault: ComputeServerFault = None
 
 
 class ComputeServers(SerializableObject):
   servers: List[ComputeServerInfo] = []
+  schema: str = None
+  first: str = None
+  next: str = None
+
+
+class ComputeFlavorItem(SerializableObject):
+  name: str = None
+  ram: int = 0
+  vcpus: int = 0
+  swap: int = 0
+  rxtx_factor: float = 0.0
+  disk: int = 0
+  id: str = None
+  links: List[Links] = []
+  OS_FLV_DISABLED_disabled: bool = False
+  os_flavor_access_is_public: bool = False
+  OS_FLV_EXT_DATA_ephemeral: int = 4
+
+
+class ComputeFlavors(SerializableObject):
+  flavors: List[ComputeFlavorItem] = []
   schema: str = None
   first: str = None
   next: str = None

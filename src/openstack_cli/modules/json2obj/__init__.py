@@ -14,7 +14,7 @@
 # limitations under the License.
 
 import json
-from typing import List
+from typing import List, Optional
 
 
 class SerializableObject(object):
@@ -82,6 +82,13 @@ class SerializableObject(object):
     else:
       return True
 
+  def __isjson(self, json_string):
+    try:
+      json.loads(json_string)
+    except ValueError:
+      return False
+    return True
+
   def clean(self):
     """
     Replace not de-serialized types with none
@@ -117,22 +124,37 @@ class SerializableObject(object):
         is_annotated = "_GenericAlias" in attr_type.__class__.__name__
         if is_annotated:
           name = attr_type.__dict__["_name"].lower()
-          attr_args = attr_type.__dict__["__args__"]
+          attr_args: List[type] = attr_type.__dict__["__args__"]
         else:
           name = attr_type.__class__.__name__
-          attr_args = [attr_type[0]] if name == list else [attr_type]
+          attr_args: List[type] = [attr_type[0]] if name == list else [attr_type]
 
-        if name == "list" and len(attr_args) > 0 and issubclass(attr_args[0], SerializableObject):
+        attr_args: Optional[type] = attr_args[0] if attr_args else None
+
+        if name == "list" and attr_args and issubclass(attr_args, SerializableObject):
           obj_list = []
           if isinstance(v, list) or isinstance(v, List):
             for vItem in v:
-              obj_list.append(attr_args[0](vItem))
+              obj_list.append(attr_args(vItem))
           else:
-            obj_list.append(attr_args[0](v))
+            obj_list.append(attr_args(v))
           self.__setattr__(k, obj_list)
-        elif self.__isclass(attr_args[0]) and issubclass(attr_args[0], SerializableObject):
-          self.__setattr__(k, attr_args[0](v))
+        elif name == "list" and attr_args:
+          _lst = []
+          if isinstance(v, list) or isinstance(v, List):
+            for vItem in v:
+              _lst.append(attr_args(vItem))
+          else:
+            _lst.append(attr_args(v))
+          self.__setattr__(k, _lst)
+        elif self.__isclass(attr_args) and issubclass(attr_args, SerializableObject):
+          # we expecting here an dict to deserialize but empty string come
+          v = v if isinstance(v, dict) or (isinstance(v, str) and self.__isjson(v)) else None
+          self.__setattr__(k, attr_args(v))
         else:
+          # if parsed type is not same as expected, create dummy one
+          if v is not None and not isinstance(v, attr_args):
+            v = attr_args()
           self.__setattr__(k, v)
 
       if errors:
@@ -165,5 +187,4 @@ class SerializableObject(object):
           ret[k] = v().serialize()
         else:
           ret[k] = v
-
     return ret

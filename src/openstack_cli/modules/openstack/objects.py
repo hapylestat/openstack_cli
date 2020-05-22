@@ -12,12 +12,17 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
+import re
+from datetime import datetime
 from enum import Enum
-from typing import List, Dict, Tuple
+from time import strptime, mktime
+from typing import List, Dict, Tuple, Iterable
 
 from openstack_cli.modules.config import Configuration
 from openstack_cli.modules.openstack import LoginResponse
-from openstack_cli.modules.openstack.api_objects import EndpointCatalog
+from openstack_cli.modules.openstack.api_objects import EndpointCatalog, ComputeServerInfo, DiskImageInfo, \
+  ComputeFlavorItem
 
 
 class EndpointTypes(Enum):
@@ -53,12 +58,12 @@ class ServerPowerState(Enum):
   """
   https://docs.openstack.org/api-ref/compute/?expanded=list-servers-detailed-detail
   """
-  nostate: int = 0
-  running: int = 1
-  paused: int = 3
-  shutdown: int = 4
-  crashed: int = 6
-  suspended: int = 7
+  nostate = 0
+  running = 1
+  paused = 3
+  shutdown = 4
+  crashed = 6
+  suspended = 7
 
   @classmethod
   def from_int(cls, state: int = 0):
@@ -92,6 +97,8 @@ class OpenStackEndpoints(object):
           self.__endpoint_cache[endpoint_type] = e.url
           if el.type == EndpointTypes.network.value:  # hack
             e.url += "/v2.0"
+          elif el.type == EndpointTypes.identity.value:
+            e.url += "/v3"
           return e.url
     return None
 
@@ -175,3 +182,120 @@ class OpenStackQuotas(object):
       return result
     else:
       raise StopIteration
+
+
+class OpenStackUsers(object):
+  def __init__(self, images: List[DiskImageInfo]):
+    users_db = {}
+    for image in images:
+      if image.owner_user_name:
+        users_db[image.user_id] = image.owner_user_name
+
+    self.__users_db = users_db
+
+  @property
+  def users(self) -> Dict[str, str]:
+    return dict(self.__users_db.items())
+
+  def get_user(self, user_id: str) -> str or None:
+    if user_id not in self.__users_db:
+      return None
+
+    return self.__users_db[user_id]
+
+
+class OpenStackVMInfo(object):
+  def __init__(self):
+    self.name: str or None = None
+    self.id: str or None = None
+    self.status: str or None = None
+    self.state: ServerPowerState = ServerPowerState.nostate
+    self.created: datetime or None = None
+    self.updated: datetime or None = None
+    self.owner_id: str or None = None
+    self.owner_name: str or None = None
+    self.ip_address: str or None = None
+    self.image_id: str or None = None
+    self.image: DiskImageInfo or None = None
+    self.key_name: str or None = None
+    self.cluster_name: str or None = None
+    self._flavor: ComputeFlavorItem or None = None
+
+  @property
+  def flavor(self) -> ComputeFlavorItem:
+    return self._flavor
+
+
+class OpenStackVM(object):
+  __CLUSTER_NAME__ = re.compile("(?P<name>.*)-\\d+$", flags=re.IGNORECASE | re.MULTILINE)
+
+  def __init__(self,
+               servers: List[ComputeServerInfo],
+               users: OpenStackUsers,
+               images: Dict[str, DiskImageInfo],
+               flavors: Dict[str, ComputeFlavorItem]
+               ):
+    self.__items = []
+    self.__n = 0
+
+    for server in servers:
+      vm = OpenStackVMInfo()
+
+      vm.name = server.name
+      vm.id = server.id
+      vm.status = server.status
+      try:
+        vm.created = datetime.utcfromtimestamp(mktime(strptime(server.created, "%Y-%m-%dT%H:%M:%SZ")))
+      except ValueError:
+        vm.created = None
+      try:
+        vm.updated = datetime.utcfromtimestamp(mktime(strptime(server.updated, "%Y-%m-%dT%H:%M:%SZ")))
+      except ValueError:
+        vm.updated = None
+      vm.ip_address = server.addresses.INTERNAL_NET[0].addr if server.addresses.INTERNAL_NET else "0.0.0.0"
+      vm.owner_id = server.user_id
+      vm.owner_name = users.get_user(vm.owner_id)
+      vm.image_id = server.image.id
+      vm.image = images[vm.image_id] if vm.image_id in images else DiskImageInfo()
+      vm.key_name = server.key_name
+      vm.state = ServerPowerState.from_int(server.OS_EXT_STS_power_state)
+      matches = re.match(self.__CLUSTER_NAME__, vm.name)
+      if not matches:
+        vm.cluster_name = vm.name
+      else:
+        try:
+          vm.cluster_name = matches.group("name")
+        except IndexError:
+          vm.cluster_name = vm.name
+      if server.flavor and server.flavor.id in flavors:
+        vm._flavor = flavors[server.flavor.id]
+
+      self.__items.append(vm)
+
+  @property
+  def items(self) -> List[OpenStackVMInfo]:
+    return list(self.__items)
+
+  def __iter__(self):
+    self.__n = 0
+    return self
+
+  def __next__(self) -> OpenStackVMInfo:
+    if self.__n < len(self.__items):
+      result = self.__items[self.__n]
+      self.__n += 1
+      return result
+    else:
+      raise StopIteration
+
+  def __str__(self):
+    s = []
+    for vm in self.__items:
+      owner = vm.owner_name if vm.owner_name else vm.owner_id
+      s.append(f"Cluster: {vm.cluster_name}, vm name: {vm.name},"
+               f" image: {vm.image.name}, ip: {vm.ip_address}, owner: {owner}, status: {vm.status}")
+
+    return "\n".join(s)
+
+
+
