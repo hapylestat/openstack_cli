@@ -12,6 +12,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
+import re
 import collections
 from typing import Dict, List
 
@@ -20,10 +22,11 @@ from openstack_cli.modules.curl import curl, CurlRequestType
 from openstack_cli.modules.openstack.api_objects import LoginResponse, ComputeLimits, VolumeV3Limits, DiskImages, \
   DiskImageInfo, ComputeServers, NetworkLimits, ComputeFlavors, ComputeFlavorItem
 from openstack_cli.modules.openstack.objects import OpenStackEndpoints, EndpointTypes, OpenStackQuotas, ImageStatus, \
-  OpenStackUsers, OpenStackVM, OpenStackVMInfo
+  OpenStackUsers, OpenStackVM, OpenStackVMInfo, OSImageInfo
 
 
 class OpenStack(object):
+
   def __init__(self, conf: Configuration):
     self.__login_api = conf.os_address
     self._conf = conf
@@ -31,6 +34,9 @@ class OpenStack(object):
     self.__cache_images: Dict[str, DiskImageInfo] = {}
     self.__users_cache: OpenStackUsers or None = None
     self.__flavors_cache: Dict[str, ComputeFlavorItem] or None = None
+
+    pattern_str = f"[\\W\\s]*(?P<name>{'|'.join(conf.supported_os_names)})(\\s|\\-|\\_)(?P<ver>[\\d\\.]+\\s*[\\w]*).*$"
+    self.__os_image_pattern = re.compile(pattern_str, re.IGNORECASE)
 
     if conf.auth_token and self.__check_token():
       pass
@@ -157,6 +163,54 @@ class OpenStack(object):
 
     return list(self.__cache_images.values())
 
+  @property
+  def os_images(self) -> List[OSImageInfo]:
+    img = []
+    known_versions = {}
+    for image in self.images:
+      if image.image_type:  # process only base images
+        continue
+
+      match = re.match(self.__os_image_pattern, image.name)
+
+      if not match or image.status != "active":  # no interest in non-active images
+        continue
+
+      os_img = OSImageInfo(
+        match.group("name"),
+        match.group("ver"),
+        image
+      )
+
+      # === here is some lame way to filter out image forks or non-base images by analyzing image name
+      # ToDo: Is here a better way to distinguish the image os?
+
+      # try to handle situations like "x yyyy" in versions and treat them like "x.yyyy"
+      ver = os_img.version.split(" ") if " " in os_img.version else None
+      if ver:
+        try:
+          ver = ".".join([str(int(n)) for n in ver])
+        except ValueError:
+          ver = None
+      if ver:
+        os_img.version = ver
+
+      if "SP" not in os_img.version and " " in os_img.version:
+        continue
+
+      if os_img.os_name.lower() not in known_versions:
+        known_versions[os_img.os_name.lower()] = []
+
+      if os_img.version in known_versions[os_img.os_name.lower()]:
+        continue
+
+      known_versions[os_img.os_name.lower()].append(os_img.version)
+      # == /end
+      img.append(os_img)
+
+    img = sorted(img, key=lambda x: x.name)
+    return img
+
   def get_image(self, image_id: str) -> DiskImageInfo or None:
     if not self.__cache_images:
       a = self.images
@@ -229,7 +283,7 @@ class OpenStack(object):
   def get_server_by_cluster(self, search_pattern: str = "", sort: bool = False) -> Dict[str, List[OpenStackVMInfo]]:
     _servers: Dict[str, List[OpenStackVMInfo]] = {}
     for server in self.servers:
-      if search_pattern and search_pattern not in server.cluster_name:
+      if search_pattern and search_pattern.lower() not in server.cluster_name.lower():
         continue
 
       if server.cluster_name not in _servers:

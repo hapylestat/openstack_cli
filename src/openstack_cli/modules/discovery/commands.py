@@ -199,7 +199,7 @@ class CommandMetaInfo(object):
         else:
           arg = kwargs[arg_name]
       except KeyError:
-        if not arg_meta.default:
+        if arg_meta.default is None:
           raise CommandArgumentException(f"Command require \"{arg_name}\" argument to be set")
 
         arg = arg_meta.default

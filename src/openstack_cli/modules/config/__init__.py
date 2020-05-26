@@ -15,6 +15,7 @@
 
 import sys
 from getpass import getpass
+from typing import List
 
 from openstack_cli.modules.config.storage import SQLStorage, StorageProperty, StoragePropertyType
 
@@ -137,6 +138,10 @@ class Configuration(object):
   @property
   def region(self):
     return "RegionOne"
+
+  @property
+  def supported_os_names(self) -> List[str]:
+    return ["sles", "rhel", "debian", "ubuntu", "centos", "opensuse"]
 
   def __initial_configuration(self):
     print("""

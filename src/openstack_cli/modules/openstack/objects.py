@@ -235,11 +235,15 @@ class OpenStackVM(object):
                images: Dict[str, DiskImageInfo],
                flavors: Dict[str, ComputeFlavorItem]
                ):
+    self.__max_host_name_len = 0
     self.__items = []
     self.__n = 0
 
     for server in servers:
       vm = OpenStackVMInfo()
+
+      if self.__max_host_name_len < len(server.name):
+        self.__max_host_name_len = len(server.name)
 
       vm.name = server.name
       vm.id = server.id
@@ -276,6 +280,10 @@ class OpenStackVM(object):
   def items(self) -> List[OpenStackVMInfo]:
     return list(self.__items)
 
+  @property
+  def max_host_len(self):
+    return self.__max_host_name_len
+
   def __iter__(self):
     self.__n = 0
     return self
@@ -298,4 +306,44 @@ class OpenStackVM(object):
     return "\n".join(s)
 
 
+class OSImageInfo(object):
+  def __init__(self, name: str, ver: str, orig: DiskImageInfo):
+    self.__name = name.strip()
+    self.__ver = ver.strip()
+    self.__orig = orig
 
+  @property
+  def name(self):
+    return f"{self.__name} {self.__ver}"
+
+  @property
+  def size(self) -> int:
+    return self.__orig.size
+
+  @property
+  def os_name(self):
+    return self.__name
+
+  @property
+  def alias(self):
+    return self.__name.lower() + "-" + self.__ver\
+     .lower()\
+     .replace(" ", "-")\
+     .replace(".", "")\
+     .replace("_", "")
+
+  @property
+  def version(self):
+    return self.__ver
+
+  @version.setter
+  def version(self, value: str):
+    self.__ver = value
+
+  @property
+  def base_image(self):
+    return self.__orig
+
+  @property
+  def description(self):
+    return f"Image {self.name}; ID: {self.__orig.id}"
