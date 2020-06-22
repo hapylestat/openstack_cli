@@ -17,12 +17,12 @@ import re
 from datetime import datetime
 from enum import Enum
 from time import strptime, mktime
-from typing import List, Dict, Tuple, Iterable
+from typing import List, Dict, Tuple
 
-from openstack_cli.modules.config import Configuration
+from openstack_cli.modules.json2obj import SerializableObject
 from openstack_cli.modules.openstack import LoginResponse
 from openstack_cli.modules.openstack.api_objects import EndpointCatalog, ComputeServerInfo, DiskImageInfo, \
-  ComputeFlavorItem
+  ComputeFlavorItem, NetworkItem, SubnetItem
 
 
 class EndpointTypes(Enum):
@@ -78,7 +78,10 @@ class ServerPowerState(Enum):
 
 
 class OpenStackEndpoints(object):
-  def __init__(self, conf: Configuration, login_response: LoginResponse):
+  def __init__(self, conf, login_response: LoginResponse):
+    """
+    :type conf openstack_cli.modules.config.Configuration
+    """
     self._endpoints: List[EndpointCatalog] = login_response.token.catalog
     self.__interface = conf.interface
     self.__region = conf.region
@@ -94,11 +97,12 @@ class OpenStackEndpoints(object):
     for el in endpoints:
       for e in el.endpoints:
         if e.region == self.__region and e.interface == self.__interface:
-          self.__endpoint_cache[endpoint_type] = e.url
           if el.type == EndpointTypes.network.value:  # hack
             e.url += "/v2.0"
           elif el.type == EndpointTypes.identity.value:
             e.url += "/v3"
+
+          self.__endpoint_cache[endpoint_type] = e.url
           return e.url
     return None
 
@@ -220,10 +224,15 @@ class OpenStackVMInfo(object):
     self.key_name: str or None = None
     self.cluster_name: str or None = None
     self._flavor: ComputeFlavorItem or None = None
+    self._original: ComputeServerInfo or None = None
 
   @property
   def flavor(self) -> ComputeFlavorItem:
     return self._flavor
+
+  @property
+  def original(self) -> ComputeServerInfo:
+    return self._original
 
 
 class OpenStackVM(object):
@@ -245,6 +254,7 @@ class OpenStackVM(object):
       if self.__max_host_name_len < len(server.name):
         self.__max_host_name_len = len(server.name)
 
+      vm._original = server
       vm.name = server.name
       vm.id = server.id
       vm.status = server.status
@@ -347,3 +357,126 @@ class OSImageInfo(object):
   @property
   def description(self):
     return f"Image {self.name}; ID: {self.__orig.id}"
+
+
+class OSFlavor(object):
+  def __init__(self, orig: ComputeFlavorItem):
+    self.__orig = orig
+
+  def base_flavor(self) -> ComputeFlavorItem:
+    return self.__orig
+
+  @property
+  def name(self):
+    return self.__orig.name
+
+  @property
+  def ram(self):
+    # originally provided in mb
+    return self.__orig.ram * 1024 * 1024
+
+  @property
+  def vcpus(self):
+    return self.__orig.vcpus
+
+  @property
+  def swap(self):
+    return self.__orig.swap
+
+  @property
+  def disk(self):
+    """
+    :return Disk size in kilobytes
+    """
+    # this is provided in gb
+    return self.__orig.disk * 1024 * 1024 * 1024
+
+  @property
+  def ephemeral_disk(self):
+    """
+    :return: ephemeral disk size in kilobytes
+    """
+    #  base value in GB, experimentally estimated
+    return self.__orig.OS_FLV_EXT_DATA_ephemeral * 1024 * 1024 * 1024
+
+  @property
+  def sum_disk_size(self):
+    return self.disk + self.ephemeral_disk
+
+  @property
+  def id(self):
+    return self.__orig.id
+
+
+class OSNetworkItem(SerializableObject):
+  name: str = ""
+  status: bool = False
+  is_default: bool = False
+  network_id: str = ""
+  subnet_id: str = ""
+  dns_nameservers: List[str] = []
+  cidr: str = ""
+  gateway_ip: str = ""
+  enable_dhcp: bool = False
+  domain_name: str = ""
+  _orig_network: NetworkItem or None = None
+  _orig_subnet: SubnetItem or None = None
+
+  @property
+  def orig_network(self) -> NetworkItem:
+    return self._orig_network
+
+  @property
+  def orig_subnet(self) -> SubnetItem:
+    return self._orig_subnet
+
+
+class OSNetwork(SerializableObject):
+  __networks: List[OSNetworkItem] = []
+  __raw_subnets: Dict[str, SubnetItem] = {}
+  __n: int = 0
+
+  def parse(self, networks: List[NetworkItem], subnets: List[SubnetItem]):
+    """
+    :rtype  OSNetwork
+    """
+    self.__raw_subnets = {k.id: k for k in subnets}
+    self.__n: int = 0
+    for network in networks:
+      n = OSNetworkItem()
+      n.name = network.name
+      n.status = network.status
+      n.is_default = network.is_default
+      n.network_id = network.id
+      n.subnet_id = network.subnets[0] if network.subnets else None
+      n.domain_name = network.dns_domain
+
+      s: SubnetItem = self.__raw_subnets[n.subnet_id] if n.subnet_id in self.__raw_subnets else None
+
+      if s:
+        n.dns_nameservers = s.dns_nameservers
+        n.cidr = s.cidr
+        n.gateway_ip = s.gateway_ip
+        n.enable_dhcp = s.enable_dhcp
+
+      n._orig_subnet = s
+      n._orig_network = network
+
+      self.__networks.append(n)
+    return self
+
+  @property
+  def items(self) -> List[OSNetworkItem]:
+    return list(self.__networks)
+
+  def __iter__(self):
+    self.__n = 0
+    return self
+
+  def __next__(self) -> OSNetworkItem:
+    if self.__n < len(self.__networks):
+      result = self.__networks[self.__n]
+      self.__n += 1
+      return result
+    else:
+      raise StopIteration

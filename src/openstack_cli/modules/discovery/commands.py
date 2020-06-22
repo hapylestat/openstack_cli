@@ -15,6 +15,7 @@
 import asyncio
 from collections import OrderedDict
 from types import FunctionType
+from typing import Dict, List
 
 from openstack_cli.modules.discovery import CommandLineOptions
 
@@ -39,23 +40,31 @@ class CommandArgumentItem(object):
   item_help = None
   default = None
 
-  def __init__(self, name: str, value_type: type, item_help: str, default: object = None):
+  def __init__(self, name: str, value_type: type, item_help: str, default: object = None, alias: str = None):
     self.name = name
     self.value_type = value_type
     self.item_help = item_help
     self.default = default
+    self.alias = alias
 
 
 class CommandArgumentsBuilder:
   def __init__(self):
-    self._args = {}
-    self._default_args = []
+    self._args: Dict[str, CommandArgumentItem] = {}
+    self._alias_args: Dict[str, CommandArgumentItem] = {}
+    self._default_args: List[CommandArgumentItem] = []
     self.__allowed_default_types = [int, str, float, list]
     self.__allowed_types = self.__allowed_default_types + [bool]
     self.__is_default_arg_flag_used = False
 
-  def add_argument(self, name: str, value_type: type, item_help: str, default: object = None):
+  def add_argument(self, name: str, value_type: type, item_help: str, default: object = None, alias: str = None):
     """
+    :arg name name of the argument as it would be used in __init__ function
+    :arg value_type python type of the value
+    :arg item_help description of element, why it needed anf what it doing
+    :arg default default value for the argument. If it is not None, argument is considered as Optional
+    :arg alias if set, the name of the argument in console. Otherwise would be taken the same as name
+
     :rtype CommandArgumentsBuilder
     """
     if value_type and value_type not in self.__allowed_types:
@@ -67,17 +76,28 @@ class CommandArgumentsBuilder:
     if value_type is bool and default is None:
       default = False
 
+    if alias is None:
+      alias = name
+
     self._args.update({
-      name: CommandArgumentItem(name, value_type, item_help, default)
+      name: CommandArgumentItem(name, value_type, item_help, default, alias)
+    })
+
+    self._alias_args.update({
+      alias: CommandArgumentItem(name, value_type, item_help, default, alias)
     })
     return self
 
   @property
-  def arguments(self) -> dict:
+  def arguments(self) -> Dict[str, CommandArgumentItem]:
     return self._args
 
   @property
-  def default_arguments(self) -> dict:
+  def arguments_by_alias(self) -> Dict[str, CommandArgumentItem]:
+    return self._alias_args
+
+  @property
+  def default_arguments(self) -> Dict[str, CommandArgumentItem]:
     d = OrderedDict()
 
     for arg in self._default_args:
@@ -113,7 +133,7 @@ class CommandArgumentsBuilder:
 
 
 class CommandMetaInfo(object):
-  def __init__(self, name: str, item_help: str = "", **kwargs: dict):
+  def __init__(self, name: str, item_help: str = "", **kwargs):
     self._name = name
     self._arguments = CommandArgumentsBuilder()
     self._help = item_help
@@ -130,6 +150,14 @@ class CommandMetaInfo(object):
   @property
   def help(self) -> str:
     return self._help
+
+  @property
+  def arguments(self) -> dict:
+    return self._arguments.arguments
+
+  @property
+  def default_arguments(self):
+    return self._arguments.default_arguments
 
   def get_arguments_builder(self) -> CommandArgumentsBuilder:
     return self._arguments
@@ -184,7 +212,7 @@ class CommandMetaInfo(object):
 
   def transform_arguments(self, kwargs: dict, fail_on_unknown: bool = False):
     parsed_arguments_dict = {}
-    arguments = self._arguments.arguments
+    arguments = self._arguments.arguments_by_alias
 
     if fail_on_unknown:
       unknown_commands = set(kwargs.keys()) - set(arguments.keys())
@@ -204,7 +232,7 @@ class CommandMetaInfo(object):
 
         arg = arg_meta.default
 
-      parsed_arguments_dict[arg_name] = arg
+      parsed_arguments_dict[arg_meta.name] = arg
     return parsed_arguments_dict
 
 

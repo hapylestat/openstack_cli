@@ -301,3 +301,73 @@ class ComputeFlavors(SerializableObject):
   schema: str = None
   first: str = None
   next: str = None
+
+
+class AllocationPoolItem(SerializableObject):
+  start: str = None
+  end: str = None
+
+
+class SubnetItem(SerializableObject):
+  service_types: List[object] = None
+  description: str = None
+  enable_dhcp: bool = False
+  tags: List[str] = []
+  network_id: str = None
+  tenant_id: str = None
+  created_at: str = None
+  dns_nameservers: List[str] = []
+  updated_at: str = None
+  ipv6_ra_mode: object = None
+  allocation_pools: List[AllocationPoolItem] = []
+  gateway_ip: str = None
+  revision_number: int = 0
+  ipv6_address_mode: object = None
+  ip_version: int = 0
+  host_routes: List[object] = []
+  cidr: str = None
+  project_id: str = None
+  id: str = None
+  subnetpool_id: str = None
+  name: str = None
+
+
+class Subnets(SerializableObject):
+  subnets: List[SubnetItem] = []
+  subnets_links: List[Links] = []
+  schema: str = None
+  first: str = None
+  next: str = None
+
+
+class NetworkItem(SerializableObject):
+  status: str = None
+  router_external: bool = False
+  availability_zone_hints: List[object] = []
+  availability_zones: List[str] = []
+  ipv4_address_scope: object = None
+  description: str = None
+  port_security_enabled: bool = False
+  subnets: List[str] = []
+  updated_at: str = None
+  tenant_id: str = None
+  created_at: str = None
+  tags: List[str] = []
+  ipv6_address_scope: object = None
+  dns_domain: str = None
+  mtu: int = 0
+  revision_number: int = 0
+  admin_state_up: bool = False
+  shared: bool = False
+  project_id: str = None
+  id: str = None
+  name: str = None
+  is_default: bool = False
+
+
+class Networks(SerializableObject):
+  networks: List[NetworkItem] = []
+  networks_links: List[Links] = []
+  schema: str = None
+  first: str = None
+  next: str = None

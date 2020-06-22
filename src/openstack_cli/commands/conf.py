@@ -21,11 +21,35 @@ __module__ = CommandMetaInfo("conf")
 __args__ = __module__.get_arguments_builder()\
   .add_default_argument("sub_command", str, "name of the sub-command", default="help")
 
+from openstack_cli.modules.openstack.objects import OSNetworkItem
+
+
+def configure_network(conf: Configuration):
+  from openstack_cli.modules.openstack import OpenStack
+  from openstack_cli.commands.networks import get_default_network
+
+  old_network = conf.default_network
+
+  if old_network:
+    print(f"Previous network name: {old_network.name}")
+    print("!!! THIS WILL CHANGE DEFAULT NETWORK !!!")
+
+  net: OSNetworkItem = get_default_network(conf, OpenStack(conf), force=True)
+
+  if net:
+    print(f"\nSelected network: {net.name}")
+    return
+
+  print("\nNetwork not set")
+
 
 def __init__(conf: Configuration, sub_command: str):
   if sub_command == "reset":
     conf.reset()
     print("Configuration reset completed")
+    return
+  if sub_command == "network":
+    configure_network(conf)
     return
 
   print("Keep watching for the new features, thanks :) ")

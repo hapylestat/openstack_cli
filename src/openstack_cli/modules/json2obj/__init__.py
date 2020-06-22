@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import json
+from types import FunctionType
 from typing import List, Optional
 
 
@@ -129,32 +130,40 @@ class SerializableObject(object):
           name = attr_type.__class__.__name__
           attr_args: List[type] = [attr_type[0]] if name == list else [attr_type]
 
-        attr_args: Optional[type] = attr_args[0] if attr_args else None
+        attr_type_arg: Optional[type] = attr_args[0] if attr_args else None
 
-        if name == "list" and attr_args and issubclass(attr_args, SerializableObject):
+        if name == "list" and attr_args and issubclass(attr_type_arg, SerializableObject):
           obj_list = []
           if isinstance(v, list) or isinstance(v, List):
             for vItem in v:
-              obj_list.append(attr_args(vItem))
+              obj_list.append(attr_type_arg(vItem))
           else:
-            obj_list.append(attr_args(v))
+            obj_list.append(attr_type_arg(v))
           self.__setattr__(k, obj_list)
         elif name == "list" and attr_args:
           _lst = []
           if isinstance(v, list) or isinstance(v, List):
             for vItem in v:
-              _lst.append(attr_args(vItem))
+              _lst.append(attr_type_arg(vItem))
           else:
-            _lst.append(attr_args(v))
+            _lst.append(attr_type_arg(v))
           self.__setattr__(k, _lst)
-        elif self.__isclass(attr_args) and issubclass(attr_args, SerializableObject):
+        elif name == "dict" and attr_args and len(attr_args) == 2 and isinstance(v, dict):
+          dict_item = {}
+          for _k, _v in v.items():
+            if _v:
+              _v = attr_args[1](_v)
+
+            dict_item[_k] = _v
+          self.__setattr__(k, dict_item)
+        elif self.__isclass(attr_type_arg) and issubclass(attr_type_arg, SerializableObject):
           # we expecting here an dict to deserialize but empty string come
           v = v if isinstance(v, dict) or (isinstance(v, str) and self.__isjson(v)) else None
-          self.__setattr__(k, attr_args(v))
+          self.__setattr__(k, attr_type_arg(v))
         else:
           # if parsed type is not same as expected, create dummy one
-          if v is not None and not isinstance(v, attr_args):
-            v = attr_args()
+          if v is not None and not isinstance(v, attr_type_arg):
+            v = attr_type_arg()
           self.__setattr__(k, v)
 
       if errors:
@@ -167,22 +176,32 @@ class SerializableObject(object):
     properties = dict(self.__class__.__dict__)
     properties.update(dict(self.__dict__))
 
-    properties = {k: v for k, v in properties.items() if k[:1] != "_"}
+    properties = {k: v for k, v in properties.items() if k[-1:] != "_"}
 
     for k, v in properties.items():
+      if isinstance(v, (FunctionType, property)):
+        continue
+
       if v is not None:
         if isinstance(v, list) and len(v) > 0:
           v_result = []
           for v_item in v:
             if issubclass(v_item.__class__, SerializableObject):
               v_result.append(v_item.serialize())
-            elif issubclass(v_item, SerializableObject):
+            elif self.__isclass(v_item) and issubclass(v_item, SerializableObject):
               v_result.append(v_item().serialize())
             else:
               v_result.append(v_item)
           ret[k] = v_result
         elif issubclass(v.__class__, SerializableObject):  # here we have instance of an class
           ret[k] = v.serialize()
+        elif isinstance(v, dict):
+          d_result = {}
+          for _k, _v in v.items():
+            if _v and issubclass(_v.__class__, SerializableObject):
+              _v = _v.serialize()
+            d_result[_k] = _v
+          ret[k] = d_result
         elif self.__isclass(v) and issubclass(v, SerializableObject):  # here is an class itself
           ret[k] = v().serialize()
         else:

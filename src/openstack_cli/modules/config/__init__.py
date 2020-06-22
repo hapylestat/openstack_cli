@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
 import sys
 from getpass import getpass
 from typing import List
@@ -22,6 +23,7 @@ from openstack_cli.modules.config.storage import SQLStorage, StorageProperty, St
 
 class Configuration(object):
   __options_table = "general"
+  __cache_table = "cache"
 
   __options_amount = 3
   __options_flags_name = "options"
@@ -116,6 +118,31 @@ class Configuration(object):
     self.__storage.set_text_property(self.__options_table, "os_password", value, encrypted=True)
 
   @property
+  def default_network(self):
+    """
+    To get default network please use networks#get_default_network
+
+    :rtype openstack_cli.modules.openstack.objects.OSNetworkItem or None
+    """
+    from openstack_cli.modules.openstack.objects import OSNetworkItem
+    raw = self.__storage.get_property(self.__options_table, "default_network", StorageProperty()).value
+
+    try:
+      return OSNetworkItem(serialized_obj=raw)
+    except ValueError:
+      pass
+
+    return None
+
+  @default_network.setter
+  def default_network(self, value):
+    """
+    :type value openstack_cli.modules.openstack.objects.OSNetworkItem
+    """
+    raw = json.dumps(value.serialize())
+    self.__storage.set_text_property(self.__options_table, "default_network", raw, encrypted=True)
+
+  @property
   def __test_encrypted_property(self):
     return self.__storage.get_property(self.__options_table, "enctest", StorageProperty()).value
 
@@ -126,6 +153,14 @@ class Configuration(object):
   @auth_token.setter
   def auth_token(self, value: str):
     self.__storage.set_text_property(self.__options_table, "auth_token", value, True)
+
+  @property
+  def cache_networks(self) -> str:
+    return self.__storage.get_property(self.__cache_table, "networks").value
+
+  @cache_networks.setter
+  def cache_networks(self, v: str):
+    self.__storage.set_text_property(self.__cache_table, "networks", v, encrypted=True)
 
   @__test_encrypted_property.setter
   def __test_encrypted_property(self, value):

@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import base64
 import re
 import collections
 from typing import Dict, List
@@ -20,9 +21,9 @@ from typing import Dict, List
 from openstack_cli.modules.config import Configuration
 from openstack_cli.modules.curl import curl, CurlRequestType
 from openstack_cli.modules.openstack.api_objects import LoginResponse, ComputeLimits, VolumeV3Limits, DiskImages, \
-  DiskImageInfo, ComputeServers, NetworkLimits, ComputeFlavors, ComputeFlavorItem
+  DiskImageInfo, ComputeServers, NetworkLimits, ComputeFlavors, ComputeFlavorItem, Networks, NetworkItem, Subnets
 from openstack_cli.modules.openstack.objects import OpenStackEndpoints, EndpointTypes, OpenStackQuotas, ImageStatus, \
-  OpenStackUsers, OpenStackVM, OpenStackVMInfo, OSImageInfo
+  OpenStackUsers, OpenStackVM, OpenStackVMInfo, OSImageInfo, OSFlavor, OSNetwork
 
 
 class OpenStack(object):
@@ -33,7 +34,8 @@ class OpenStack(object):
     self.__endpoints__: OpenStackEndpoints or None = None
     self.__cache_images: Dict[str, DiskImageInfo] = {}
     self.__users_cache: OpenStackUsers or None = None
-    self.__flavors_cache: Dict[str, ComputeFlavorItem] or None = None
+    self.__flavors_cache: Dict[str, OSFlavor] or None = None
+    self.__networks_cache: OSNetwork = OSNetwork(serialized_obj=conf.cache_networks) if conf.cache_networks else None
 
     pattern_str = f"[\\W\\s]*(?P<name>{'|'.join(conf.supported_os_names)})(\\s|\\-|\\_)(?P<ver>[\\d\\.]+\\s*[\\w]*).*$"
     self.__os_image_pattern = re.compile(pattern_str, re.IGNORECASE)
@@ -105,15 +107,19 @@ class OpenStack(object):
                 params: Dict[str, str] = None,
                 req_type: CurlRequestType = CurlRequestType.GET,
                 is_json: bool = False,
-                page_collection_name: str = None
+                page_collection_name: str = None,
+                data: str or dict = None
                 ) -> str or dict or None:
     url = f"{self.__endpoints.get_endpoint(endpoint)}{relative_uri}"
     headers = {
       "X-Auth-Token": self._conf.auth_token
     }
-    r = curl(url, req_type=req_type, params=params, headers=headers)
-    if r.code not in [200, 201]:
-      return None
+
+    r = curl(url, req_type=req_type, params=params, headers=headers, data=data)
+    if r.code not in [200, 201, 202]:
+      if not data:
+        return None
+      raise ValueError(r.from_json() if is_json else r.content)
 
     content = r.from_json() if is_json else r.content
 
@@ -247,7 +253,7 @@ class OpenStack(object):
     return quotas
 
   @property
-  def flavors(self) -> List[ComputeFlavorItem]:
+  def flavors(self) -> List[OSFlavor]:
     if self.__flavors_cache:
       return list(self.__flavors_cache.values())
 
@@ -261,7 +267,7 @@ class OpenStack(object):
       params=params,
       page_collection_name="flavors"
     )
-    self.__flavors_cache = {flavor.id: flavor for flavor in ComputeFlavors(serialized_obj=flavors_raw).flavors}
+    self.__flavors_cache = {flavor.id: OSFlavor(flavor) for flavor in ComputeFlavors(serialized_obj=flavors_raw).flavors}
     return list(self.__flavors_cache.values())
 
   @property
@@ -280,6 +286,32 @@ class OpenStack(object):
 
     return OpenStackVM(servers, self.users, self.__cache_images, self.__flavors_cache)
 
+  @property
+  def networks(self) -> OSNetwork:
+    if self.__networks_cache:
+      return self.__networks_cache
+
+    params = {
+      "limit": "1000"
+    }
+    networks = Networks(serialized_obj=self.__request(
+      EndpointTypes.network,
+      "/networks",
+      is_json=True,
+      params=params,
+      page_collection_name="networks"
+    )).networks
+    subnets = Subnets(serialized_obj=self.__request(
+      EndpointTypes.network,
+      "/subnets",
+      is_json=True,
+      params=params,
+      page_collection_name="subnets"
+    )).subnets
+    self.__networks_cache = OSNetwork().parse(networks, subnets)
+    self._conf.cache_networks = self.__networks_cache.serialize()
+    return self.__networks_cache
+
   def get_server_by_cluster(self, search_pattern: str = "", sort: bool = False) -> Dict[str, List[OpenStackVMInfo]]:
     _servers: Dict[str, List[OpenStackVMInfo]] = {}
     for server in self.servers:
@@ -294,4 +326,61 @@ class OpenStack(object):
     if sort:
       _servers = collections.OrderedDict(sorted(_servers.items()))
     return _servers
+
+  def get_server_console_log(self, server_id: str) -> str:
+    r = self.__request(
+      EndpointTypes.compute,
+      f"/servers/{server_id}/action",
+      req_type=CurlRequestType.POST,
+      data={
+        "os-getConsoleOutput": {
+          "length": None
+        }
+      },
+      is_json=True
+    )
+
+    return r["output"]
+
+  def _to_base64(self, s: str) -> str:
+    return str(base64.b64encode(s.encode("utf-8")), "utf-8")
+
+  def start_instance(self):
+    j = {
+      "server": {
+        "name": "super-test",
+        "flavorRef": "4c78d932-d81c-43d7-a340-eaa52c994fa9",
+        "imageRef": "e35cc02d-c934-46d6-9eb1-c34cc421dd1b",
+        "adminPass": "qwerty",
+        "key_name": "my-key",
+        "networks": [{
+          "uuid": "a38acf6a-59ea-4ece-b51b-ac7ca474378f"
+        }],
+        "personality": [
+          {
+            "path": "/etc/banner.txt",
+            "contents": self._to_base64("Hi on my super test server!")
+          }
+        ],
+        "user_data": self._to_base64("some user data"),
+        "min_count": "2",
+        "max_count": "2"
+      }
+    }
+
+    r = None
+    try:
+      r = self.__request(
+        EndpointTypes.compute,
+        "/servers",
+        req_type=CurlRequestType.POST,
+        is_json=True,
+        data=j
+      )
+    except ValueError as e:
+      print(e)
+
+    print(r)
+
+    pass
 

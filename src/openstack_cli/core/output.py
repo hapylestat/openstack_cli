@@ -13,6 +13,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from enum import Enum
+
+from openstack_cli.core.colors import Colors
+
+
+class TableStyle(Enum):
+  default = 0
+  line_highlight = 1
+
 
 class TableColumn(object):
   def __init__(self, name: str, length: int):
@@ -52,14 +61,22 @@ class TableSizeColumn(object):
 
 
 class TableOutput(object):
-  def __init__(self, *columns: TableColumn):
+  def __init__(self, *columns: TableColumn, style: TableStyle = TableStyle.default):
     self.__columns = columns
     self.__column_pattern = "  ".join([f"{{:<{c.length}}}" for c in columns])
-    self.__sep_columns = sep_header = ["-" * c.length for c in columns]
+    self.__sep_columns = ["-" * c.length for c in columns]
+    self.__style = style
+    self.__prev_color = Colors.RESET
 
   def print_header(self):
     print(self.__column_pattern.format(*[c.name for c in self.__columns]))
     print(self.__column_pattern.format(*self.__sep_columns))
 
   def print_row(self, *values: str):
-    print(self.__column_pattern.format(*values))
+    if self.__style == TableStyle.line_highlight:
+      print(f"{self.__prev_color}{self.__column_pattern.format(*values)}{Colors.RESET}")
+    else:
+      print(self.__column_pattern.format(*values))
+
+    if values[-1:][0]:
+      self.__prev_color = Colors.BRIGHT_WHITE if self.__prev_color == Colors.RESET else Colors.RESET
