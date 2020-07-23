@@ -13,9 +13,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# =========================================================================
+# The library is a part of AppUtils library
+# GitHub: https://github.com/hapylestat/apputils
+# Contacts: hapy.lestat@gmail.com
+# =========================================================================
+
 import json
 from types import FunctionType
-from typing import List, Optional
+from typing import List, Optional, get_type_hints
+
+# all annotations now returned as string and should be parsed via  typing.get_type_hints
+# from __future__ import annotations
 
 
 class SerializableObject(object):
@@ -179,7 +188,7 @@ class SerializableObject(object):
     properties = {k: v for k, v in properties.items() if k[-1:] != "_"}
 
     for k, v in properties.items():
-      if isinstance(v, (FunctionType, property)):
+      if isinstance(v, (FunctionType, property, classmethod)):
         continue
 
       if v is not None:

@@ -13,16 +13,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import base64
 import re
 from datetime import datetime
 from enum import Enum
+from io import RawIOBase
 from time import strptime, mktime
 from typing import List, Dict, Tuple
 
 from openstack_cli.modules.json2obj import SerializableObject
 from openstack_cli.modules.openstack import LoginResponse
 from openstack_cli.modules.openstack.api_objects import EndpointCatalog, ComputeServerInfo, DiskImageInfo, \
-  ComputeFlavorItem, NetworkItem, SubnetItem
+  ComputeFlavorItem, NetworkItem, SubnetItem, VMCreateServer, VMCreateNetworksItem, VMCreateNewFileItem, \
+  VMCreateServerItem
 
 
 class EndpointTypes(Enum):
@@ -64,6 +67,13 @@ class ServerPowerState(Enum):
   shutdown = 4
   crashed = 6
   suspended = 7
+
+  @classmethod
+  def stop_states(cls):
+    """
+    :rtype List[ServerPowerState]
+    """
+    return [cls.shutdown, cls.crashed, cls.suspended, cls.paused]
 
   @classmethod
   def from_int(cls, state: int = 0):
@@ -225,6 +235,7 @@ class OpenStackVMInfo(object):
     self.cluster_name: str or None = None
     self._flavor: ComputeFlavorItem or None = None
     self._original: ComputeServerInfo or None = None
+    self._net: OSNetworkItem = OSNetworkItem()
 
   @property
   def flavor(self) -> ComputeFlavorItem:
@@ -234,86 +245,13 @@ class OpenStackVMInfo(object):
   def original(self) -> ComputeServerInfo:
     return self._original
 
-
-class OpenStackVM(object):
-  __CLUSTER_NAME__ = re.compile("(?P<name>.*)-\\d+$", flags=re.IGNORECASE | re.MULTILINE)
-
-  def __init__(self,
-               servers: List[ComputeServerInfo],
-               users: OpenStackUsers,
-               images: Dict[str, DiskImageInfo],
-               flavors: Dict[str, ComputeFlavorItem]
-               ):
-    self.__max_host_name_len = 0
-    self.__items = []
-    self.__n = 0
-
-    for server in servers:
-      vm = OpenStackVMInfo()
-
-      if self.__max_host_name_len < len(server.name):
-        self.__max_host_name_len = len(server.name)
-
-      vm._original = server
-      vm.name = server.name
-      vm.id = server.id
-      vm.status = server.status
-      try:
-        vm.created = datetime.utcfromtimestamp(mktime(strptime(server.created, "%Y-%m-%dT%H:%M:%SZ")))
-      except ValueError:
-        vm.created = None
-      try:
-        vm.updated = datetime.utcfromtimestamp(mktime(strptime(server.updated, "%Y-%m-%dT%H:%M:%SZ")))
-      except ValueError:
-        vm.updated = None
-      vm.ip_address = server.addresses.INTERNAL_NET[0].addr if server.addresses.INTERNAL_NET else "0.0.0.0"
-      vm.owner_id = server.user_id
-      vm.owner_name = users.get_user(vm.owner_id)
-      vm.image_id = server.image.id
-      vm.image = images[vm.image_id] if vm.image_id in images else DiskImageInfo()
-      vm.key_name = server.key_name
-      vm.state = ServerPowerState.from_int(server.OS_EXT_STS_power_state)
-      matches = re.match(self.__CLUSTER_NAME__, vm.name)
-      if not matches:
-        vm.cluster_name = vm.name
-      else:
-        try:
-          vm.cluster_name = matches.group("name")
-        except IndexError:
-          vm.cluster_name = vm.name
-      if server.flavor and server.flavor.id in flavors:
-        vm._flavor = flavors[server.flavor.id]
-
-      self.__items.append(vm)
+  @property
+  def fqdn(self) -> str:
+    return f"{self.name}.{self._net.domain_name}"
 
   @property
-  def items(self) -> List[OpenStackVMInfo]:
-    return list(self.__items)
-
-  @property
-  def max_host_len(self):
-    return self.__max_host_name_len
-
-  def __iter__(self):
-    self.__n = 0
-    return self
-
-  def __next__(self) -> OpenStackVMInfo:
-    if self.__n < len(self.__items):
-      result = self.__items[self.__n]
-      self.__n += 1
-      return result
-    else:
-      raise StopIteration
-
-  def __str__(self):
-    s = []
-    for vm in self.__items:
-      owner = vm.owner_name if vm.owner_name else vm.owner_id
-      s.append(f"Cluster: {vm.cluster_name}, vm name: {vm.name},"
-               f" image: {vm.image.name}, ip: {vm.ip_address}, owner: {owner}, status: {vm.status}")
-
-    return "\n".join(s)
+  def domain(self) -> str:
+    return self._net.domain_name
 
 
 class OSImageInfo(object):
@@ -359,9 +297,22 @@ class OSImageInfo(object):
     return f"Image {self.name}; ID: {self.__orig.id}"
 
 
-class OSFlavor(object):
-  def __init__(self, orig: ComputeFlavorItem):
+class OSFlavor(SerializableObject):
+  __orig: ComputeFlavorItem = None
+
+  @classmethod
+  def get(cls, orig: ComputeFlavorItem):
+    """
+    :rtype OSFlavor
+    """
+    return cls()._set_flavor(orig)
+
+  def _set_flavor(self, orig: ComputeFlavorItem):
+    """
+    :rtype OSFlavor
+    """
     self.__orig = orig
+    return self
 
   def base_flavor(self) -> ComputeFlavorItem:
     return self.__orig
@@ -449,7 +400,7 @@ class OSNetwork(SerializableObject):
       n.is_default = network.is_default
       n.network_id = network.id
       n.subnet_id = network.subnets[0] if network.subnets else None
-      n.domain_name = network.dns_domain
+      n.domain_name = network.dns_domain.strip(".") if network.dns_domain else network.dns_domain
 
       s: SubnetItem = self.__raw_subnets[n.subnet_id] if n.subnet_id in self.__raw_subnets else None
 
@@ -480,3 +431,142 @@ class OSNetwork(SerializableObject):
       return result
     else:
       raise StopIteration
+
+
+class VMCreateBuilder(object):
+  def __init__(self, name: str):
+    self.__vm = VMCreateServerItem(name=name)
+    self.__obj: VMCreateServer = VMCreateServer(server=self.__vm)
+
+  def set_flavor(self, flavor: OSFlavor):
+    self.__vm.flavorRef = flavor.id
+    return self
+
+  def set_image(self, image: DiskImageInfo):
+    self.__vm.imageRef = image.id
+    return self
+
+  def set_admin_pass(self, admin_pass: str):
+    self.__vm.adminPass = admin_pass
+    return self
+
+  def set_key_name(self, key_name: str):
+    self.__vm.key_name = key_name
+    return self
+
+  def add_network(self, network: OSNetworkItem):
+    self.__vm.networks.append(VMCreateNetworksItem(uuid=network.network_id))
+    return self
+
+  def add_binary_file(self, remote_path: str, stream: RawIOBase):
+    f = VMCreateNewFileItem()
+    f.path = remote_path
+    f.contents = base64.b64encode(stream.read())
+    self.__vm.personality.append(f)
+    return self
+
+  def add_text_file(self, remote_path: str, value: List[str] or str):
+    f = VMCreateNewFileItem()
+    f.path = remote_path
+    f.contents = base64.b64encode(bytearray(
+      value if isinstance(value, str) else "\n".join(value),
+      encoding="UTF-8"
+    )).decode("UTF-8")
+    self.__vm.personality.append(f)
+    return self
+
+  def set_user_date(self, value: str):
+    self.__vm.user_data = base64.b64encode(bytearray(value, encoding="UTF-8")).decode("UTF-8")
+    return self
+
+  def set_instances_count(self, count: int):
+    self.__vm.min_count = self.__vm.max_count = str(count)
+    return self
+
+  def build(self):
+    return self.__obj
+
+
+class OpenStackVM(object):
+  __CLUSTER_NAME__ = re.compile("(?P<name>.*)-\\d+$", flags=re.IGNORECASE | re.MULTILINE)
+
+  def __init__(self,
+               servers: List[ComputeServerInfo],
+               users: OpenStackUsers,
+               images: Dict[str, DiskImageInfo],
+               flavors: Dict[str, ComputeFlavorItem],
+               networks: OSNetwork
+               ):
+    self.__max_host_name_len = 0
+    self.__items = []
+    self.__n = 0
+    # ToDo: do not hardcode net
+    net: OSNetworkItem = [n for n in networks.items if n.name == "INTERNAL_NET"][0]
+
+    for server in servers:
+      vm = OpenStackVMInfo()
+
+      if self.__max_host_name_len < len(server.name):
+        self.__max_host_name_len = len(server.name)
+
+      vm._net = net
+      vm._original = server
+      vm.name = server.name
+      vm.id = server.id
+      vm.status = server.status
+      try:
+        vm.created = datetime.utcfromtimestamp(mktime(strptime(server.created, "%Y-%m-%dT%H:%M:%SZ")))
+      except ValueError:
+        vm.created = None
+      try:
+        vm.updated = datetime.utcfromtimestamp(mktime(strptime(server.updated, "%Y-%m-%dT%H:%M:%SZ")))
+      except ValueError:
+        vm.updated = None
+      vm.ip_address = server.addresses.INTERNAL_NET[0].addr if server.addresses.INTERNAL_NET else "0.0.0.0"
+      vm.owner_id = server.user_id
+      vm.owner_name = users.get_user(vm.owner_id)
+      vm.image_id = server.image.id
+      vm.image = images[vm.image_id] if vm.image_id in images else DiskImageInfo()
+      vm.key_name = server.key_name
+      vm.state = ServerPowerState.from_int(server.OS_EXT_STS_power_state)
+      matches = re.match(self.__CLUSTER_NAME__, vm.name)
+      if not matches:
+        vm.cluster_name = vm.name
+      else:
+        try:
+          vm.cluster_name = matches.group("name")
+        except IndexError:
+          vm.cluster_name = vm.name
+      if server.flavor and server.flavor.id in flavors:
+        vm._flavor = flavors[server.flavor.id]
+
+      self.__items.append(vm)
+
+  @property
+  def items(self) -> List[OpenStackVMInfo]:
+    return list(self.__items)
+
+  @property
+  def max_host_len(self):
+    return self.__max_host_name_len
+
+  def __iter__(self):
+    self.__n = 0
+    return self
+
+  def __next__(self) -> OpenStackVMInfo:
+    if self.__n < len(self.__items):
+      result = self.__items[self.__n]
+      self.__n += 1
+      return result
+    else:
+      raise StopIteration
+
+  def __str__(self):
+    s = []
+    for vm in self.__items:
+      owner = vm.owner_name if vm.owner_name else vm.owner_id
+      s.append(f"Cluster: {vm.cluster_name}, vm name: {vm.name},"
+               f" image: {vm.image.name}, ip: {vm.ip_address}, owner: {owner}, status: {vm.status}")
+
+    return "\n".join(s)

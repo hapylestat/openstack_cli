@@ -13,10 +13,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# =========================================================================
+# The library is a part of AppUtils library
+# GitHub: https://github.com/hapylestat/apputils
+# Contacts: hapy.lestat@gmail.com
+# =========================================================================
+
 import sqlite3
 import os
 import json
 
+import time
 from enum import Enum
 from getpass import getpass
 from typing import List, Callable
@@ -46,8 +53,7 @@ class StoragePropertyType(Enum):
 
 class StorageProperty(object):
   def __init__(self, name: str = "", property_type: StoragePropertyType = StoragePropertyType.text or str,
-               value: str or dict = ""):
-
+               value: str or dict = "", updated: float or None = None):
     self.__name: str = name
     if isinstance(property_type, StoragePropertyType):
       self.__property_type: StoragePropertyType = property_type
@@ -56,6 +62,7 @@ class StorageProperty(object):
     else:
       self.__property_type: StoragePropertyType = StoragePropertyType.text
     self.__value: str or dict = value
+    self.__updated: float = updated if updated else time.time()
 
   @property
   def name(self):
@@ -72,6 +79,10 @@ class StorageProperty(object):
   @property
   def value(self):
     return self.__value
+
+  @property
+  def updated(self) -> float:
+    return self.__updated
 
   @property
   def str_value(self):
@@ -91,7 +102,7 @@ class SQLStorage(BaseStorage):
     super(SQLStorage, self).__init__()
 
     self.__fernet: Fernet or None = None
-    self._db_connection: sqlite3.Connection = sqlite3.connect(self.configuration_file_path)
+    self._db_connection: sqlite3.Connection = sqlite3.connect(self.configuration_file_path, check_same_thread=False)
     self.__tables: List[str] = self.__get_table_list()
 
     if not lazy:
@@ -228,10 +239,13 @@ class SQLStorage(BaseStorage):
   def _create_property_table(self, table: str):
     sql = f"""
     DROP TABLE IF EXISTS {table};
-    create table {table}(name TEXT UNIQUE, type TEXT, store CLOB);
+    create table {table}(name TEXT UNIQUE, type TEXT, updated REAL DEFAULT 0, store CLOB);
     """
     self.execute_script(sql)
     self.__tables.append(table)
+
+  def reset_properties_update_time(self, table: str):
+    self._query(f"update {table} set updated=0.1", commit=True)
 
   def get_property(self, table: str, name: str, default=StorageProperty()) -> StorageProperty:
     if table not in self.__tables:
@@ -239,11 +253,11 @@ class SQLStorage(BaseStorage):
 
     func: Callable[[sqlite3.Cursor], List[str] or None] = lambda x: x.fetchone()
 
-    result_set = self._query(f"select type, store from {table} where name=?;", [name], func)
+    result_set = self._query(f"select type, updated, store from {table} where name=?;", [name], func)
     if not result_set:
       return default
 
-    p_type, p_value = result_set
+    p_type, p_updated, p_value = result_set
     pt_type = StoragePropertyType.from_string(p_type)
 
     if pt_type == StoragePropertyType.encrypted:
@@ -252,7 +266,7 @@ class SQLStorage(BaseStorage):
     if pt_type == StoragePropertyType.json:
       p_value = json.loads(p_value)
 
-    return StorageProperty(name, p_type, p_value)
+    return StorageProperty(name, p_type, p_value, p_updated)
 
   def set_property(self, table: str, prop: StorageProperty, encrypted: bool = False):
     if table not in self.__tables:
@@ -267,12 +281,13 @@ class SQLStorage(BaseStorage):
     args = [
       self._encrypt(prop.str_value) if encrypted else prop.str_value,
       prop.property_type.value,
+      time.time(),
       prop.name
     ]
     if self.property_existed(table, prop.name):
-      self._query(f"update {table} set store=?, type=? where name=?;", args, commit=True)
+      self._query(f"update {table} set store=?, type=?, updated=? where name=?;", args, commit=True)
     else:
-      self._query(f"insert into {table} (store, type, name) values (?,?,?);", args, commit=True)
+      self._query(f"insert into {table} (store, type, updated, name) values (?,?,?,?);", args, commit=True)
 
   def set_text_property(self, table: str, name: str, value, encrypted: bool = False):
      p = StorageProperty(name, StoragePropertyType.text, value)

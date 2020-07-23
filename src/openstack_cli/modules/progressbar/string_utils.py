@@ -13,22 +13,36 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
+# =========================================================================
+# The library is a part of AppUtils library
+# GitHub: https://github.com/hapylestat/apputils
+# Contacts: hapy.lestat@gmail.com
+# =========================================================================
 
-from openstack_cli.modules.openstack import OpenStack
-from openstack_cli.modules.config import Configuration
-from openstack_cli.modules.discovery import CommandMetaInfo
-
-
-__module__ = CommandMetaInfo("up")
-__args__ = __module__.get_arguments_builder() \
-  .add_default_argument("name", str, "name of the cluster", default="test")\
-  .add_default_argument("count", int, "amount of nodes", default=0)\
-  .add_argument("flavor", str, "Host flavor", default="")\
-  .add_argument("os", str, "VM OS to spin up", default="")
+import string
+import re
+from collections import defaultdict
 
 
-def __init__(conf: Configuration, name: str, count: int, flavor: str, os: str):
-  ostack = OpenStack(conf)
+FORMAT_RE = re.compile("\{\{([^{]*)\}\}")
 
 
+def safe_format(s, **kwargs):
+  """
+  :type s str
+  """
+  return string.Formatter().vformat(s, (), defaultdict(str, **kwargs))
 
+
+def safe_format_sh(s, **kwargs):
+  """
+  :type s str
+  :type kwargs dict
+  """
+
+  to_replace = set(kwargs.keys()) & set(FORMAT_RE.findall(s))
+
+  for item in to_replace:
+    s = s.replace("{{" + item + "}}", kwargs[item])
+
+  return s

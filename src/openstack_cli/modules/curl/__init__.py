@@ -19,6 +19,7 @@ import base64
 import gzip
 import zlib
 import re
+from asyncio.events import AbstractEventLoop
 from enum import Enum
 
 from typing import Dict
@@ -184,7 +185,7 @@ def __detect_str_type(data):
   :column_type str
   :rtype str
   """
-  r = re.search("[^\=]+=[^\&]*\&*", data)  # application/x-www-form-urlencoded pattern
+  r = re.search("[^=]+=[^&]*&*", data)  # application/x-www-form-urlencoded pattern
   if r:
     return "application/x-www-form-urlencoded"
   else:
@@ -192,8 +193,6 @@ def __detect_str_type(data):
 
 
 def __parse_content(data):
-  response_data = data
-  response_headers = {}
   if isinstance(data, dict) or isinstance(data, list) or isinstance(data, set) or isinstance(data, tuple):
     response_data = __encode_str(json.dumps(data))
     response_headers = {"Content-Type": "application/json; charset=UTF-8"}
@@ -207,6 +206,16 @@ def __parse_content(data):
     response_headers = {}
 
   return response_data, response_headers
+
+
+async def curl_async(loop: AbstractEventLoop, url: str, params: Dict[str, str] = None, auth: CURLAuth = None,
+                     req_type: CurlRequestType = CurlRequestType.GET, data: str or bytes or dict = None,
+                     headers: Dict[str, str] = None, timeout: int = None, use_gzip: bool = True,
+                     use_stream: bool = False) -> CURLResponse:
+    return await loop.run_in_executor(
+      None,
+      lambda: curl(url, params, auth, req_type, data, headers, timeout, use_gzip, use_stream)
+    )
 
 
 def curl(url: str, params: Dict[str, str] = None, auth: CURLAuth = None,

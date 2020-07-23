@@ -14,40 +14,79 @@
 # limitations under the License.
 
 import base64
+import json
 import re
 import collections
-from typing import Dict, List
+import sys
+from json import JSONDecodeError
+from typing import Dict, List, Callable
 
 from openstack_cli.modules.config import Configuration
 from openstack_cli.modules.curl import curl, CurlRequestType
 from openstack_cli.modules.openstack.api_objects import LoginResponse, ComputeLimits, VolumeV3Limits, DiskImages, \
-  DiskImageInfo, ComputeServers, NetworkLimits, ComputeFlavors, ComputeFlavorItem, Networks, NetworkItem, Subnets
+  DiskImageInfo, ComputeServers, NetworkLimits, ComputeFlavors, ComputeFlavorItem, Networks, NetworkItem, Subnets, \
+  VMCreateResponse, ComputeServerInfo, ComputeServerActions, ComputeServerActionRebootType
 from openstack_cli.modules.openstack.objects import OpenStackEndpoints, EndpointTypes, OpenStackQuotas, ImageStatus, \
-  OpenStackUsers, OpenStackVM, OpenStackVMInfo, OSImageInfo, OSFlavor, OSNetwork
+  OpenStackUsers, OpenStackVM, OpenStackVMInfo, OSImageInfo, OSFlavor, OSNetwork, VMCreateBuilder, ServerPowerState
+
+
+class JSONValueError(ValueError):
+  KEY: str = "{@json@}:"
+
+  def __init__(self, data: str):
+    self.__data = None
+    try:
+      json.loads(data)
+      self.__data = data
+    except (TypeError, JSONDecodeError):
+     super(JSONValueError, self).__init__(data)
+
+  def __str__(self):
+    return f"{self.KEY}{self.__data}" if self.__data else super(JSONValueError, self).__str__()
 
 
 class OpenStack(object):
 
   def __init__(self, conf: Configuration):
+    self.__last_errors: List[str] = []
     self.__login_api = conf.os_address
     self._conf = conf
     self.__endpoints__: OpenStackEndpoints or None = None
     self.__cache_images: Dict[str, DiskImageInfo] = {}
     self.__users_cache: OpenStackUsers or None = None
-    self.__flavors_cache: Dict[str, OSFlavor] or None = None
-    self.__networks_cache: OSNetwork = OSNetwork(serialized_obj=conf.cache_networks) if conf.cache_networks else None
+    self.__flavors_cache: Dict[str, OSFlavor] or None = {}
+    self.__networks_cache: OSNetwork or None = None
 
     pattern_str = f"[\\W\\s]*(?P<name>{'|'.join(conf.supported_os_names)})(\\s|\\-|\\_)(?P<ver>[\\d\\.]+\\s*[\\w]*).*$"
     self.__os_image_pattern = re.compile(pattern_str, re.IGNORECASE)
 
+    self.__is_auth: bool = False
     if conf.auth_token and self.__check_token():
-      pass
+      self.__is_auth = True
     else:
-      self.__auth()
+      self.__is_auth = self.__auth()
 
-    # getting initial data / ToDo: cache them permanently in db-cache
-    a = self.images
-    a = self.flavors
+    if self.__is_auth:
+      self.__init_after_auth__()
+    else:
+      self.__last_errors.append("Login failed, some exception happen")
+
+  def __init_after_auth__(self):
+    # getting initial data
+    if self._conf.is_cached(DiskImageInfo):
+      self.__cache_images = {k: DiskImageInfo(serialized_obj=v) for k, v in json.loads(self._conf.get_cache(DiskImageInfo)).items()}
+    else:
+      a = self.images
+
+    if self._conf.is_cached(OSFlavor):
+      self.__flavors_cache = {k: OSFlavor(serialized_obj=v) for k, v in json.loads(self._conf.get_cache(OSFlavor)).items()}
+    else:
+      a = self.flavors
+
+    if self._conf.is_cached(OSNetwork):
+      self.__networks_cache = OSNetwork(serialized_obj=self._conf.get_cache(OSNetwork))
+    else:
+      a = self.networks
 
   def __check_token(self) -> bool:
     headers = {
@@ -94,6 +133,20 @@ class OpenStack(object):
     return True
 
   @property
+  def last_errors(self) -> List[str]:
+    """
+    Returning list of last errors with cleaning the results
+    """
+    return self.__last_errors
+
+  def clear_errors(self):
+    self.__last_errors = []
+
+  @property
+  def has_errors(self) -> bool:
+    return len(self.__last_errors) > 0
+
+  @property
   def __endpoints(self) -> OpenStackEndpoints:
     return self.__endpoints__
 
@@ -110,6 +163,7 @@ class OpenStack(object):
                 page_collection_name: str = None,
                 data: str or dict = None
                 ) -> str or dict or None:
+    # print(f"++>[{req_type.value}][{endpoint.value}] {relative_uri}")
     url = f"{self.__endpoints.get_endpoint(endpoint)}{relative_uri}"
     headers = {
       "X-Auth-Token": self._conf.auth_token
@@ -117,9 +171,9 @@ class OpenStack(object):
 
     r = curl(url, req_type=req_type, params=params, headers=headers, data=data)
     if r.code not in [200, 201, 202]:
-      if not data:
-        return None
-      raise ValueError(r.from_json() if is_json else r.content)
+      # if not data:
+      #   return None
+      raise JSONValueError(r.content)
 
     content = r.from_json() if is_json else r.content
 
@@ -165,7 +219,13 @@ class OpenStack(object):
       )
     ).images
 
-    self.__cache_images = {img.id: img for img in images}
+    _cached_images = {}
+    _cached = {}
+    for img in images:
+      _cached_images[img.id] = img
+      _cached[img.id] = img.serialize()
+    self._conf.set_cache(DiskImageInfo, _cached)
+    self.__cache_images = _cached_images
 
     return list(self.__cache_images.values())
 
@@ -267,7 +327,18 @@ class OpenStack(object):
       params=params,
       page_collection_name="flavors"
     )
-    self.__flavors_cache = {flavor.id: OSFlavor(flavor) for flavor in ComputeFlavors(serialized_obj=flavors_raw).flavors}
+
+    __flavors_cache = {}
+    _cache = {}
+    for flavor in ComputeFlavors(serialized_obj=flavors_raw).flavors:
+      _flavor = OSFlavor.get(flavor)
+      self.__flavors_cache[_flavor.id] = _flavor
+      _cache[_flavor.id] = _flavor.serialize()
+
+    self._conf.set_cache(OSFlavor, _cache)
+
+    self.__flavors_cache = __flavors_cache
+
     return list(self.__flavors_cache.values())
 
   @property
@@ -284,7 +355,7 @@ class OpenStack(object):
     )
     servers = ComputeServers(serialized_obj=servers_raw).servers
 
-    return OpenStackVM(servers, self.users, self.__cache_images, self.__flavors_cache)
+    return OpenStackVM(servers, self.users, self.__cache_images, self.__flavors_cache, self.__networks_cache)
 
   @property
   def networks(self) -> OSNetwork:
@@ -309,13 +380,22 @@ class OpenStack(object):
       page_collection_name="subnets"
     )).subnets
     self.__networks_cache = OSNetwork().parse(networks, subnets)
-    self._conf.cache_networks = self.__networks_cache.serialize()
+    self._conf.set_cache(OSNetwork, self.__networks_cache.serialize())
     return self.__networks_cache
 
-  def get_server_by_cluster(self, search_pattern: str = "", sort: bool = False) -> Dict[str, List[OpenStackVMInfo]]:
+  def get_server_by_cluster(self, search_pattern: str = "", sort: bool = False,
+                            filter_func: Callable[[OpenStackVMInfo], bool] = None) -> Dict[str, List[OpenStackVMInfo]]:
+    """
+    :param search_pattern: vm search pattern list
+    :param sort: sort resulting list
+    :param filter_func: if return true - item would be filtered, false not
+    """
     _servers: Dict[str, List[OpenStackVMInfo]] = {}
     for server in self.servers:
       if search_pattern and search_pattern.lower() not in server.cluster_name.lower():
+        continue
+
+      if filter_func and filter_func(server):
         continue
 
       if server.cluster_name not in _servers:
@@ -345,28 +425,67 @@ class OpenStack(object):
   def _to_base64(self, s: str) -> str:
     return str(base64.b64encode(s.encode("utf-8")), "utf-8")
 
-  def start_instance(self):
-    j = {
-      "server": {
-        "name": "super-test",
-        "flavorRef": "4c78d932-d81c-43d7-a340-eaa52c994fa9",
-        "imageRef": "e35cc02d-c934-46d6-9eb1-c34cc421dd1b",
-        "adminPass": "qwerty",
-        "key_name": "my-key",
-        "networks": [{
-          "uuid": "a38acf6a-59ea-4ece-b51b-ac7ca474378f"
-        }],
-        "personality": [
-          {
-            "path": "/etc/banner.txt",
-            "contents": self._to_base64("Hi on my super test server!")
-          }
-        ],
-        "user_data": self._to_base64("some user data"),
-        "min_count": "2",
-        "max_count": "2"
+  def delete_instance(self, server: OpenStackVMInfo or ComputeServerInfo) -> bool:
+    server_id: str = server.id
+    try:
+      r = self.__request(
+        EndpointTypes.compute,
+        f"/servers/{server_id}",
+        req_type=CurlRequestType.DELETE
+      )
+      return r is not None
+    except ValueError:
+      return False
+
+  def __server_action(self, server: OpenStackVMInfo or ComputeServerInfo, action: ComputeServerActions,
+                      action_data: dict = None) -> bool:
+    server_id: str = server.id
+    try:
+      action_raw = {
+        action.value: action_data
       }
-    }
+      r = self.__request(
+        EndpointTypes.compute,
+        f"/servers/{server_id}/action",
+        req_type=CurlRequestType.POST,
+        is_json=True,
+        data=action_raw
+      )
+      return True
+    except ValueError as e:
+      self.__last_errors.append(str(e))
+    except Exception as e:
+      print(str(e), file=sys.stderr)
+
+    return False
+
+  def stop_instance(self, server: OpenStackVMInfo or ComputeServerInfo) -> bool:
+    return self.__server_action(server, ComputeServerActions.stop)
+
+  def start_instance(self, server: OpenStackVMInfo or ComputeServerInfo) -> bool:
+    return self.__server_action(server, ComputeServerActions.start)
+
+  def reboot_instance(self, server: OpenStackVMInfo or ComputeServerInfo,
+                      how: ComputeServerActionRebootType = ComputeServerActionRebootType.hard) -> bool:
+
+    return self.__server_action(server, ComputeServerActions.reboot, {"type": how.value})
+
+  def create_instance(self, name: str, image_name: str,
+                     password: str, ssh_key_name: str, count: int = 1):
+
+    image = [img for img in self.os_images if img.alias == image_name][0]
+    flavor = [fl for fl in sorted(self.flavors, key=lambda x: x.disk) if fl.disk > image.size and fl.ephemeral_disk > 0][0]
+
+    j = VMCreateBuilder(name) \
+      .set_admin_pass(password) \
+      .set_key_name(ssh_key_name) \
+      .set_image(image.base_image) \
+      .set_flavor(flavor) \
+      .add_network(self._conf.default_network) \
+      .add_text_file("/etc/banner.txt", "Hi on my super test server!") \
+      .set_user_date("some user data") \
+      .set_instances_count(count) \
+      .build().serialize()
 
     r = None
     try:
@@ -378,9 +497,7 @@ class OpenStack(object):
         data=j
       )
     except ValueError as e:
-      print(e)
+      self.__last_errors.append(str(e))
 
+    r = VMCreateResponse(serialized_obj=r)
     print(r)
-
-    pass
-

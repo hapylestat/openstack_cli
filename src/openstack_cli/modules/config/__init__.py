@@ -15,13 +15,15 @@
 
 import json
 import sys
+import time
 from getpass import getpass
-from typing import List
+from typing import List, ClassVar
 
 from openstack_cli.modules.config.storage import SQLStorage, StorageProperty, StoragePropertyType
 
 
 class Configuration(object):
+  __cache_invalidation: float = time.mktime(time.gmtime(8 * 3600))  # 8 hours
   __options_table = "general"
   __cache_table = "cache"
 
@@ -154,13 +156,30 @@ class Configuration(object):
   def auth_token(self, value: str):
     self.__storage.set_text_property(self.__options_table, "auth_token", value, True)
 
-  @property
-  def cache_networks(self) -> str:
-    return self.__storage.get_property(self.__cache_table, "networks").value
+  def invalidate_cache(self):
+    self.__storage.reset_properties_update_time(self.__cache_table)
 
-  @cache_networks.setter
-  def cache_networks(self, v: str):
-    self.__storage.set_text_property(self.__cache_table, "networks", v, encrypted=True)
+  def is_cached(self, clazz: ClassVar) -> bool:
+    p: StorageProperty = self.__storage.get_property(self.__cache_table, clazz.__name__)
+
+    if p.updated:
+      time_delta: float = time.time() - p.updated
+      if time_delta >= self.__cache_invalidation:
+        return False
+    return p.value not in ('', {})
+
+  def get_cache(self, clazz: ClassVar) -> str or dict or None:
+    p: StorageProperty = self.__storage.get_property(self.__cache_table, clazz.__name__)
+
+    if p.updated:
+      time_delta: float = time.time() - p.updated
+      if time_delta >= self.__cache_invalidation:
+        return None
+
+    return p.value
+
+  def set_cache(self, clazz: ClassVar, v: str or dict):
+    self.__storage.set_text_property(self.__cache_table, clazz.__name__, v, encrypted=True)
 
   @__test_encrypted_property.setter
   def __test_encrypted_property(self, value):

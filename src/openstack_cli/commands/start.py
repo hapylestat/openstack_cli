@@ -13,22 +13,35 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
-
-from openstack_cli.modules.openstack import OpenStack
+from openstack_cli.core.output import StatusOutput, Console
+from openstack_cli.modules.openstack import OpenStack, OpenStackVMInfo, ServerPowerState
 from openstack_cli.modules.config import Configuration
 from openstack_cli.modules.discovery import CommandMetaInfo
 
 
-__module__ = CommandMetaInfo("up")
+__module__ = CommandMetaInfo("start")
 __args__ = __module__.get_arguments_builder() \
-  .add_default_argument("name", str, "name of the cluster", default="test")\
-  .add_default_argument("count", int, "amount of nodes", default=0)\
-  .add_argument("flavor", str, "Host flavor", default="")\
-  .add_argument("os", str, "VM OS to spin up", default="")
+  .add_default_argument("name", str, "name of the cluster or vm")
 
 
-def __init__(conf: Configuration, name: str, count: int, flavor: str, os: str):
+def __init__(conf: Configuration, name: str):
   ostack = OpenStack(conf)
 
+  def __work_unit(value: OpenStackVMInfo) -> bool:
+    return ostack.start_instance(value)
 
+  so = StatusOutput(__work_unit, pool_size=5)
 
+  servers = ostack.get_server_by_cluster(name, sort=True, filter_func=lambda x: x.state == ServerPowerState.running)
+
+  if not servers:
+    print("No matches or already started")
+    return
+
+  if Console.confirm_operation("start", servers):
+    flatten_servers = [server for server_pair in servers.values() for server in server_pair]
+
+    so.start("Starting nodes", objects=flatten_servers)
+    so.check_issues(ostack.last_errors)
+  else:
+    print("Aborted....")

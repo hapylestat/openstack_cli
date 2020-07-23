@@ -13,6 +13,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# =========================================================================
+# The library is a part of AppUtils library
+# GitHub: https://github.com/hapylestat/apputils
+# Contacts: hapy.lestat@gmail.com
+# =========================================================================
+
 import asyncio
 import os
 import sys

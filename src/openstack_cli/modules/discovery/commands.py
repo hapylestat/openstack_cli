@@ -12,12 +12,18 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
+# =========================================================================
+# The library is a part of AppUtils library
+# GitHub: https://github.com/hapylestat/apputils
+# Contacts: hapy.lestat@gmail.com
+# =========================================================================
+
 import asyncio
 from collections import OrderedDict
 from types import FunctionType
 from typing import Dict, List
 
-from openstack_cli.modules.discovery import CommandLineOptions
 
 
 class CommandArgumentException(Exception):

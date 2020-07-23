@@ -12,7 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
+from enum import Enum
 from typing import List
 from openstack_cli.modules.json2obj import SerializableObject
 
@@ -371,3 +371,99 @@ class Networks(SerializableObject):
   schema: str = None
   first: str = None
   next: str = None
+
+
+# POST OBJECTS
+
+class VMCreateNewFileItem(SerializableObject):
+  path: str = None
+  contents: str = None  # base64 encoded
+
+
+class VMCreateNetworksItem(SerializableObject):
+  uuid: str = None
+
+
+class VMCreateServerItem(SerializableObject):
+  name: str = None
+  flavorRef: str = None
+  imageRef: str = None
+  adminPass: str = None
+  key_name: str = None
+  networks: List[VMCreateNetworksItem] = []
+  personality: List[VMCreateNewFileItem] = []
+  user_data: str = None
+  min_count: str = None
+  max_count: str = None
+
+
+class VMCreateServer(SerializableObject):
+  server: VMCreateServerItem = None
+
+
+class VMCreateResponseItem(SerializableObject):
+  security_groups: List[Role] = []
+  OS_DCF_diskConfig: str = None
+  id: str = None
+  links: List[Links] = []
+  adminPass: str = None
+
+
+class VMCreateResponse(SerializableObject):
+  server: VMCreateResponseItem = None
+
+
+class ComputeServerActions(Enum):
+  """
+  https://docs.openstack.org/api-ref/compute/?expanded=stop-server-os-stop-action-detail,change-administrative-password-changepassword-action-detail
+  """
+  changePassword = "changePassword"
+  confirmResize = "confirmResize"
+  """
+  {
+    "pause": null
+  }
+  """
+  pause = "pause"
+  """
+  {
+    "reboot" : {
+        "type" : "HARD"
+    }
+  }
+  """
+  reboot = "reboot"  # type = HARD, SOFT
+  """
+  {
+    "os-start" : null
+  }
+  """
+  start = "os-start"
+  """
+  {
+    "os-stop" : null
+  }
+  """
+  stop = "os-stop"
+  """
+  {
+    "os-getConsoleOutput": {
+        "length": 50
+    }
+  }
+  """
+  console = "os-getConsoleOutput"   # length
+
+
+class ComputeServerActionRebootType(Enum):
+  soft = "SOFT"
+  hard = "HARD"
+
+
+class ApiErrorMessage(SerializableObject):
+  message: str = ""
+  code: int = 0
+
+
+class ApiErrorResponse(SerializableObject):
+  conflictingRequest: ApiErrorMessage = ApiErrorMessage()

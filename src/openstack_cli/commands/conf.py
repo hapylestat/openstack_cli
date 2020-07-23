@@ -47,9 +47,10 @@ def __init__(conf: Configuration, sub_command: str):
   if sub_command == "reset":
     conf.reset()
     print("Configuration reset completed")
-    return
-  if sub_command == "network":
+  elif sub_command == "reset-cache":
+    conf.invalidate_cache()
+    print("Cached data flushed")
+  elif sub_command == "network":
     configure_network(conf)
-    return
-
-  print("Keep watching for the new features, thanks :) ")
+  else:
+    print("Keep watching for the new features, thanks :) ")
