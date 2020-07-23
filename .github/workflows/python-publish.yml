@@ -2,6 +2,7 @@ name: Python package
 
 on: [push]
 
+
 jobs:
   build:
     name: Build
@@ -9,7 +10,7 @@ jobs:
     strategy:
       matrix:
         runs-on: [ubuntu-latest]
-        python-version: [3.7, 3.8]
+        python-version: [3.8]
 
     runs-on: ${{ matrix.runs-on }}
 
@@ -40,3 +41,13 @@ jobs:
           path: dist/${{ matrix.python-version }}/*.whl
         # Use always() to always run this step to publish test results when there are test failures
         if: ${{ always() }}
+      - name: Upload Release Asset
+        id: upload-release-asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: https://uploads.github.com/repos/hapylestat/openstack_cli/releases/latest/assets?name=openstack_cli-1.0.dev0-py3-none-any.whl
+          asset_path: dist/${{ matrix.python-version }}/openstack_cli-1.0.dev0-py3-none-any.whl
+          asset_name: dist/${{ matrix.python-version }}/openstack_cli-1.0.dev0-py3-none-any.whl
+          asset_content_type: application/octet-stream
