@@ -5,8 +5,6 @@ on:
     branches:
       - master
 
-
-
 jobs:
   build:
     name: Build
@@ -45,7 +43,26 @@ jobs:
           path: dist/${{ matrix.python-version }}/*.whl
         # Use always() to always run this step to publish test results when there are test failures
         if: ${{ always() }}
-      - name: Upload Release Asset
+
+      - name: Delete previous release
+        uses: ame-yu/action-delete-latest-release@v2
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create new release
+          id: create_release
+          uses: actions/create-release@v1
+          env:
+            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # This token is provided by Actions, you do not need to create your own token
+          with:
+            tag_name: latest
+            release_name: Release ${{ github.ref }}
+            body: |
+              Updates from the latest commit ${{ github.ref }}
+            draft: false
+            prerelease: true
+
+      - name: Upload Release Assets
         uses: AButler/upload-release-assets@v2.0
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
