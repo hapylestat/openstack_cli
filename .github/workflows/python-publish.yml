@@ -44,23 +44,6 @@ jobs:
         # Use always() to always run this step to publish test results when there are test failures
         if: ${{ always() }}
 
-      - name: Delete previous release
-        uses: ame-yu/action-delete-latest-release@v2
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Create new release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # This token is provided by Actions, you do not need to create your own token
-        with:
-          tag_name: latest
-          release_name: Release ${{ github.ref }}
-          body: |
-            Updates from the latest commit ${{ github.ref }}
-          draft: false
-          prerelease: true
-
       - name: Upload Release Assets
         uses: AButler/upload-release-assets@v2.0
         with:
