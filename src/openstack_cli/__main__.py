@@ -32,4 +32,5 @@ if __package__ == '':
 from openstack_cli import core
 
 if __name__ == '__main__':
+  print("Hey test!")
   sys.exit(core.main_entry())
