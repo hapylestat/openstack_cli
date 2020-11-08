@@ -14,14 +14,14 @@
 # limitations under the License.
 
 from datetime import datetime
+from typing import List, Dict
 
 from openstack_cli.core.colors import Colors
 from openstack_cli.modules.config import Configuration
 from openstack_cli.modules.discovery import CommandMetaInfo
 
 from openstack_cli.modules.openstack import OpenStack
-from openstack_cli.modules.openstack.objects import ServerPowerState
-
+from openstack_cli.modules.openstack.objects import ServerPowerState, OpenStackVMInfo
 
 __module__ = CommandMetaInfo("list")
 __args__ = __module__.get_arguments_builder()\
@@ -43,21 +43,14 @@ def get_lifetime(timestamp: datetime):
   return f"{int(hours)}h {int(minutes)}m" if days == 0 else f"{days} day(s)"
 
 
-def __init__(conf: Configuration, search_pattern: str):
-  ostack = OpenStack(conf)
-  clusters = ostack.get_server_by_cluster(search_pattern=search_pattern, sort=True)
-
-  if search_pattern and len(clusters) == 0:
-    print(f"Query '{search_pattern}' returned no match")
-    return
-
+def print_cluster(servers: Dict[str, List[OpenStackVMInfo]]):
   print("{:40}  {:20} {:20} {:22} {:10}".format("Cluster", "VmType", "Status", "Created (UTC)", "Lifetime"))
   print("{:40}  {:20} {:20} {:22} {:10}".format("-" * 40, "-" * 20, "-" * 20, "-" * 22, "-" * 10))
 
-  for cluster_name, servers in clusters.items():
-    server = servers[0]
-    num_running: int = len([s for s in servers if s.state == ServerPowerState.running])
-    num_paused: int = len([s for s in servers if s.state == ServerPowerState.paused])
+  for cluster_name, _servers in servers.items():
+    server = _servers[0]
+    num_running: int = len([s for s in _servers if s.state == ServerPowerState.running])
+    num_paused: int = len([s for s in _servers if s.state == ServerPowerState.paused])
     num_stopped: int = len(servers) - num_running - num_paused
 
     print("{:40}  {:20} {:20}  {:22}  {:10}".format(
@@ -69,3 +62,14 @@ def __init__(conf: Configuration, search_pattern: str):
       server.created.strftime("%d/%m/%Y %H:%M:%S"),
       get_lifetime(server.created)
     ))
+
+
+def __init__(conf: Configuration, search_pattern: str):
+  clusters = ostack.get_server_by_cluster(search_pattern=search_pattern, sort=True)
+
+  if search_pattern and len(clusters) == 0:
+    print(f"Query '{search_pattern}' returned no match")
+    return
+
+  print_cluster(clusters)
+

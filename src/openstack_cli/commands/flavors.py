@@ -14,23 +14,34 @@
 #  limitations under the License.
 
 from openstack_cli.modules.openstack import OpenStack
-from openstack_cli.core.output import TableOutput, TableColumn, TableSizeColumn
+from openstack_cli.core.output import TableOutput, TableColumn, TableSizeColumn, Console
 from openstack_cli.modules.config import Configuration
 from openstack_cli.modules.discovery import CommandMetaInfo
 
 __module__ = CommandMetaInfo("flavors", "Display available VM configurations")
 __args__ = __module__.get_arguments_builder()\
+  .add_default_argument("image_name", str, "Image name (alias)", default="")\
   .add_argument("sort_by_name", bool, "Sort the list by name", alias="by-name", default=False)\
+  .add_argument("all", bool, "Show all flavors", default=False)
 
 
-
-def __init__(conf: Configuration, sort_by_name: bool):
+def __init__(conf: Configuration, image_name: str, sort_by_name: bool, all: bool):
   sort_keys = {
     True: lambda x: x.name,
     False: lambda x: (x.vcpus, x.ram, x.disk, x.ephemeral_disk)
   }
   ostack = OpenStack(conf)
-  flavors = sorted(ostack.flavors, key=sort_keys[sort_by_name])
+  if image_name:
+    images = list(ostack.get_image_by_alias(image_name))
+    if images and len(images) > 1:
+      Console.print_error(f"Image '{image_name}' matches more than one image")
+      return
+    elif not images:
+      Console.print_error(f"No image with name '{image_name}' found")
+      return
+    flavors = sorted(ostack.get_flavors(images[0]), key=sort_keys[sort_by_name])
+  else:
+    flavors = sorted(ostack.flavors, key=sort_keys[sort_by_name])
 
   table = TableOutput(
     TableColumn("Name", 20),
@@ -45,6 +56,8 @@ def __init__(conf: Configuration, sort_by_name: bool):
   table.print_header()
 
   for flavor in flavors:
+    if not all and flavor.ephemeral_disk == 0:
+      continue
     table.print_row(
       flavor.name,
       flavor.vcpus,

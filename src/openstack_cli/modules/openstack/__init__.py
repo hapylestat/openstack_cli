@@ -15,19 +15,29 @@
 
 import base64
 import json
+import os
 import re
 import collections
 import sys
+import time
+from enum import Enum
+from inspect import FrameInfo
 from json import JSONDecodeError
-from typing import Dict, List, Callable
+from typing import Dict, List, Callable, Iterable, TypeVar
 
+from openstack_cli.core.colors import Colors
 from openstack_cli.modules.config import Configuration
 from openstack_cli.modules.curl import curl, CurlRequestType
 from openstack_cli.modules.openstack.api_objects import LoginResponse, ComputeLimits, VolumeV3Limits, DiskImages, \
   DiskImageInfo, ComputeServers, NetworkLimits, ComputeFlavors, ComputeFlavorItem, Networks, NetworkItem, Subnets, \
-  VMCreateResponse, ComputeServerInfo, ComputeServerActions, ComputeServerActionRebootType
+  VMCreateResponse, ComputeServerInfo, ComputeServerActions, ComputeServerActionRebootType, VMKeypairItem, \
+  VMKeypairItemValue, VMKeypairs
 from openstack_cli.modules.openstack.objects import OpenStackEndpoints, EndpointTypes, OpenStackQuotas, ImageStatus, \
-  OpenStackUsers, OpenStackVM, OpenStackVMInfo, OSImageInfo, OSFlavor, OSNetwork, VMCreateBuilder, ServerPowerState
+  OpenStackUsers, OpenStackVM, OpenStackVMInfo, OSImageInfo, OSFlavor, OSNetwork, VMCreateBuilder, ServerPowerState, \
+  ServerState
+
+
+T = TypeVar('T')
 
 
 class JSONValueError(ValueError):
@@ -45,9 +55,13 @@ class JSONValueError(ValueError):
     return f"{self.KEY}{self.__data}" if self.__data else super(JSONValueError, self).__str__()
 
 
+class LocalCacheType(Enum):
+  SERVERS = 0
+
+
 class OpenStack(object):
 
-  def __init__(self, conf: Configuration):
+  def __init__(self, conf: Configuration, debug: bool = False):
     self.__last_errors: List[str] = []
     self.__login_api = conf.os_address
     self._conf = conf
@@ -56,6 +70,8 @@ class OpenStack(object):
     self.__users_cache: OpenStackUsers or None = None
     self.__flavors_cache: Dict[str, OSFlavor] or None = {}
     self.__networks_cache: OSNetwork or None = None
+    self.__debug = debug or os.getenv("API_DEBUG", False) == "True"
+    self.__local_cache: Dict[LocalCacheType, object] = {}
 
     pattern_str = f"[\\W\\s]*(?P<name>{'|'.join(conf.supported_os_names)})(\\s|\\-|\\_)(?P<ver>[\\d\\.]+\\s*[\\w]*).*$"
     self.__os_image_pattern = re.compile(pattern_str, re.IGNORECASE)
@@ -70,6 +86,21 @@ class OpenStack(object):
       self.__init_after_auth__()
     else:
       self.__last_errors.append("Login failed, some exception happen")
+
+  def __invalidate_local_cache(self, cache_type: LocalCacheType):
+    if cache_type == LocalCacheType.SERVERS:
+      self.__local_cache[cache_type] = None
+
+  def __set_local_cache(self, cache_type: LocalCacheType, value: T) -> T:
+    self.__local_cache[cache_type] = value
+
+    return value
+
+  def __get_local_cache(self, cache_type: LocalCacheType) -> T:
+    if cache_type not in self.__local_cache:
+      return None
+
+    return self.__local_cache[cache_type]
 
   def __init_after_auth__(self):
     # getting initial data
@@ -88,12 +119,29 @@ class OpenStack(object):
     else:
       a = self.networks
 
+    # fake cache, used to re-sync server keys from time to time
+    if not self._conf.is_cached(VMKeypairItemValue):
+      conf_keys_hashes = [hash(k) for k in self._conf.get_keys()]
+      server_keys = self.get_keypairs()
+      for server_key in server_keys:
+        if hash(server_key) not in conf_keys_hashes:
+          self._conf.add_key(server_key)
+
   def __check_token(self) -> bool:
     headers = {
       "X-Auth-Token": self._conf.auth_token,
       "X-Subject-Token": self._conf.auth_token
     }
+    _t_start = 0
+    if self.__debug:
+      _t_start = time.time_ns()
     r = curl(f"{self.__login_api}/v3/auth/tokens", req_type=CurlRequestType.GET, headers=headers)
+
+    if self.__debug:
+      from openstack_cli.core.output import Console
+      _t_delta = time.time_ns() - _t_start
+      _t_sec = _t_delta / 1000000000
+      Console.print_debug(f"[{_t_sec:.2f}s][GET][auth] /auth/tokens; ")
 
     if r.code not in [200, 201]:
       return False
@@ -119,8 +167,17 @@ class OpenStack(object):
         }
       }
     }
+    _t_start = 0
+    if self.__debug:
+      _t_start = time.time_ns()
 
     r = curl(f"{self.__login_api}/v3/auth/tokens", req_type=CurlRequestType.POST, data=data)
+    if self.__debug:
+      from openstack_cli.core.output import Console
+      _t_delta = time.time_ns() - _t_start
+      _t_sec = _t_delta / 1000000000
+      Console.print_debug(f"[{_t_sec:.2f}s][POST][auth] /auth/tokens; ")
+
     if r.code not in [200, 201]:
       return False
 
@@ -154,6 +211,13 @@ class OpenStack(object):
   def endpoints(self):
     return self.__endpoints
 
+  def __get_origin_frame(self, base_f_name: str) -> List[FrameInfo]:
+    import inspect
+    _frames = inspect.stack()
+    for i in range(0, len(_frames)):
+      if _frames[i].function == base_f_name:
+        return [_frames[i+3], _frames[i+2], _frames[i+1]]
+
   def __request(self,
                 endpoint: EndpointTypes,
                 relative_uri: str,
@@ -163,17 +227,48 @@ class OpenStack(object):
                 page_collection_name: str = None,
                 data: str or dict = None
                 ) -> str or dict or None:
-    # print(f"++>[{req_type.value}][{endpoint.value}] {relative_uri}")
+
+    _t_start = 0
+    if self.__debug:
+      _t_start = time.time_ns()
+
     url = f"{self.__endpoints.get_endpoint(endpoint)}{relative_uri}"
     headers = {
       "X-Auth-Token": self._conf.auth_token
     }
 
-    r = curl(url, req_type=req_type, params=params, headers=headers, data=data)
-    if r.code not in [200, 201, 202]:
+    r = None
+    try:
+      r = curl(url, req_type=req_type, params=params, headers=headers, data=data)
+    except TimeoutError:
+      self.__last_errors.append("Timeout exception on API request")
+      return
+
+    if self.__debug:
+      from openstack_cli.core.output import Console
+      _t_delta = time.time_ns() - _t_start
+      _t_sec = _t_delta / 1000000000
+      _params = ",".join([f"{k}={v}" for k, v in params.items()]) if params else "None"
+      _f_caller = self.__get_origin_frame(self.__request.__name__)
+
+      _chunks = [
+        f"[{_t_sec:.2f}s]",
+        f"[{req_type.value}]",
+        f"[{endpoint.value}]",
+        f" {relative_uri}; ",
+        Colors.RESET,
+        f"{Colors.BRIGHT_BLACK}{os.path.basename(_f_caller[0].filename)}{Colors.RESET}: ",
+        f"{Colors.BRIGHT_BLACK}->{Colors.RESET}".join([f"{f.function}:{f.lineno}" for f in _f_caller])
+      ]
+      Console.print_debug("".join(_chunks))
+
+    if r.code not in [200, 201, 202, 204]:
       # if not data:
       #   return None
       raise JSONValueError(r.content)
+
+    if r.code in [204]:
+      return ""
 
     content = r.from_json() if is_json else r.content
 
@@ -337,15 +432,40 @@ class OpenStack(object):
 
     self._conf.set_cache(OSFlavor, _cache)
 
-    self.__flavors_cache = __flavors_cache
-
     return list(self.__flavors_cache.values())
 
-  @property
-  def servers(self) -> OpenStackVM:
+  def get_flavors(self, image: OSImageInfo) -> Iterable[OSFlavor]:
+    """
+    Returns acceptable flavors for image
+    """
+    for fl in sorted(self.flavors, key=lambda x: x.disk):
+      if fl.disk > image.size and fl.ephemeral_disk > 0:
+        yield fl
+
+  def get_image_by_alias(self, alias: str) -> Iterable[OSImageInfo]:
+    """
+    Return image object by given alias name
+    """
+    for img in self.os_images:
+      if img.alias == alias:
+        yield img
+
+  def get_servers(self, arguments: dict = None, invalidate_cache: bool = False) -> OpenStackVM:
+    if invalidate_cache:
+      self.__invalidate_local_cache(LocalCacheType.SERVERS)
+
+    __cached_value: OpenStackVM = self.__get_local_cache(LocalCacheType.SERVERS)
+    if __cached_value and arguments is None:
+      return __cached_value
+
+    if arguments is None:
+      arguments = {}
+
     params = {
       "limit": "1000"
     }
+
+    params.update(arguments)
     servers_raw = self.__request(
       EndpointTypes.compute,
       "/servers/detail",
@@ -354,8 +474,27 @@ class OpenStack(object):
       page_collection_name="servers"
     )
     servers = ComputeServers(serialized_obj=servers_raw).servers
+    obj = OpenStackVM(servers, self.users, self.__cache_images, self.__flavors_cache, self.__networks_cache)
+    return self.__set_local_cache(LocalCacheType.SERVERS, obj)
 
-    return OpenStackVM(servers, self.users, self.__cache_images, self.__flavors_cache, self.__networks_cache)
+  def get_server_by_id(self, _id: str or OpenStackVMInfo) -> OpenStackVMInfo:
+    if isinstance(_id, OpenStackVMInfo):
+      _id = _id.id
+
+    r = self.__request(
+      EndpointTypes.compute,
+      f"/servers/{_id}",
+      req_type=CurlRequestType.GET,
+      is_json=True
+    )
+
+    servers = [ComputeServerInfo(serialized_obj=r["server"])]
+    osvm = OpenStackVM(servers, self.users, self.__cache_images, self.__flavors_cache, self.__networks_cache)
+    return osvm.items[0]
+
+  @property
+  def servers(self) -> OpenStackVM:
+    return self.get_servers()
 
   @property
   def networks(self) -> OSNetwork:
@@ -392,7 +531,8 @@ class OpenStack(object):
     """
     _servers: Dict[str, List[OpenStackVMInfo]] = {}
     for server in self.servers:
-      if search_pattern and search_pattern.lower() not in server.cluster_name.lower():
+      _sname = server.cluster_name.lower()[:len(search_pattern)]
+      if search_pattern and search_pattern.lower() != _sname:
         continue
 
       if filter_func and filter_func(server):
@@ -407,7 +547,10 @@ class OpenStack(object):
       _servers = collections.OrderedDict(sorted(_servers.items()))
     return _servers
 
-  def get_server_console_log(self, server_id: str) -> str:
+  def get_server_console_log(self, server_id: str or OpenStackVMInfo, grep_by: str = None) -> List[str]:
+    if isinstance(server_id, OpenStackVMInfo):
+      server_id = server_id.id
+
     r = self.__request(
       EndpointTypes.compute,
       f"/servers/{server_id}/action",
@@ -420,7 +563,12 @@ class OpenStack(object):
       is_json=True
     )
 
-    return r["output"]
+    lines: List[str] = r["output"].split("\n")
+
+    if grep_by:
+      lines = [line for line in lines if grep_by in line]
+
+    return lines
 
   def _to_base64(self, s: str) -> str:
     return str(base64.b64encode(s.encode("utf-8")), "utf-8")
@@ -434,8 +582,73 @@ class OpenStack(object):
         req_type=CurlRequestType.DELETE
       )
       return r is not None
-    except ValueError:
+    except ValueError as e:
       return False
+
+  def get_keypairs(self) -> List[VMKeypairItemValue]:
+    try:
+      r = self.__request(
+        EndpointTypes.compute,
+        "/os-keypairs",
+        req_type=CurlRequestType.GET,
+        is_json=True
+      )
+      return [kp.keypair for kp in VMKeypairs(serialized_obj=r).keypairs]
+    except ValueError as e:
+      self.__last_errors.append(str(e))
+
+    return []
+
+  def get_keypair(self, name: str, default: VMKeypairItemValue = None) -> VMKeypairItemValue or None:
+    try:
+      r = self.__request(
+        EndpointTypes.compute,
+        f"/os-keypairs/{name}",
+        req_type=CurlRequestType.GET,
+        is_json=True
+      )
+      return VMKeypairItem(serialized_obj=r).keypair
+    except ValueError as e:
+      self.__last_errors.append(str(e))
+
+    return default
+
+  def delete_keypair(self, name: str) -> bool:
+    try:
+      r = self.__request(
+        EndpointTypes.compute,
+        f"/os-keypairs/{name}",
+        req_type=CurlRequestType.DELETE
+      )
+      return True
+    except ValueError as e:
+      self.__last_errors.append(str(e))
+
+    return False
+
+  def create_keypair(self, name: str, public_key: str) -> bool:
+    try:
+      data = {
+        "keypair": {
+          "name": name,
+          "public_key": public_key
+        }
+      }
+      r = self.__request(
+        EndpointTypes.compute,
+        "/os-keypairs",
+        req_type=CurlRequestType.POST,
+        is_json=True,
+        data=data
+      )
+      return VMKeypairItem(serialized_obj=r).keypair.name == name
+    except ValueError as e:
+      self.__last_errors.append(str(e))
+
+    return False
+
+  def create_key(self, key: VMKeypairItemValue) -> bool:
+    return self.create_keypair(key.name, key.public_key)
 
   def __server_action(self, server: OpenStackVMInfo or ComputeServerInfo, action: ComputeServerActions,
                       action_data: dict = None) -> bool:
@@ -470,22 +683,45 @@ class OpenStack(object):
 
     return self.__server_action(server, ComputeServerActions.reboot, {"type": how.value})
 
-  def create_instance(self, name: str, image_name: str,
-                     password: str, ssh_key_name: str, count: int = 1):
+  def get_server_status(self, servers_id: str or OpenStackVMInfo) -> ServerState:
+    return self.get_server_by_id(servers_id).status
 
-    image = [img for img in self.os_images if img.alias == image_name][0]
-    flavor = [fl for fl in sorted(self.flavors, key=lambda x: x.disk) if fl.disk > image.size and fl.ephemeral_disk > 0][0]
+  def create_instances(self, cluster_name: str, image: OSImageInfo, flavor: OSFlavor,
+                       password: str, ssh_key: VMKeypairItemValue = None, count: int = 1) -> List[OpenStackVMInfo]:
+    custom_user = "openstack"
+    init_script = f"""#!/bin/bash
+echo 'PermitRootLogin yes'| cat - /etc/ssh/sshd_config > /tmp/sshd_config
+echo 'PasswordAuthentication yes'| cat - /tmp/sshd_config > /etc/ssh/sshd_config && rm -f /tmp/sshd_config
+useradd {custom_user}; echo -e "{password}\n{password}"|passwd {custom_user}
+echo -e "{password}\n{password}"|passwd root
+systemctl restart ssh.service
+systemctl restart sshd.service
+"""
 
-    j = VMCreateBuilder(name) \
+    if ssh_key:
+      init_script += f"""
+KEY='{ssh_key.public_key}'
+echo ${{KEY}} >/root/.ssh/authorized_keys
+mkdir -p /home/{custom_user}/.ssh; '${{KEY}}' >/home/{custom_user}/.ssh/authorized_keys
+"""
+
+    init_script += f"""
+UID_MIN=$(grep -E '^UID_MIN' /etc/login.defs | tr -d -c 0-9)
+USERS=$(awk -v uid_min="${{UID_MIN}}" -F: '$3 >= uid_min && $1 != "nobody" {{printf "%s ",$1}}'  /etc/passwd)
+echo "@users@: ${{USERS}}"
+"""
+
+    builder = VMCreateBuilder(cluster_name) \
       .set_admin_pass(password) \
-      .set_key_name(ssh_key_name) \
       .set_image(image.base_image) \
       .set_flavor(flavor) \
       .add_network(self._conf.default_network) \
-      .add_text_file("/etc/banner.txt", "Hi on my super test server!") \
-      .set_user_date("some user data") \
+      .set_user_data(init_script) \
       .set_instances_count(count) \
-      .build().serialize()
+      .enable_reservation_id()
+
+    if ssh_key:
+      builder.set_key_name(ssh_key.name)
 
     r = None
     try:
@@ -494,10 +730,17 @@ class OpenStack(object):
         "/servers",
         req_type=CurlRequestType.POST,
         is_json=True,
-        data=j
+        data=builder.build().serialize()
       )
     except ValueError as e:
       self.__last_errors.append(str(e))
+      return []
 
-    r = VMCreateResponse(serialized_obj=r)
-    print(r)
+    response = VMCreateResponse(serialized_obj=r)
+
+    if response.reservation_id:
+      servers = self.get_servers({"reservation_id": response.reservation_id}, invalidate_cache=True)
+      return list(servers.items)
+
+    return [self.get_server_by_id(response.server.id)]
+

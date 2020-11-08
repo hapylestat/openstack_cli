@@ -123,6 +123,10 @@ class CommandsDiscovery(object):
   def command_arguments(self) -> List[str]:
     return self._options.args[1:] if self._options.args else []
 
+  @property
+  def kwargs_name(self) -> List[str]:
+    return list(self._options.kwargs.keys())
+
   def _get_command(self, injected_args: dict = None, fail_on_unknown: bool = False) -> CommandModule:
     if not self._options.args:
       raise NoCommandException(None, "No command passed, unable to continue")

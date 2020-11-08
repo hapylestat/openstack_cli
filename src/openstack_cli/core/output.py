@@ -16,8 +16,9 @@
 
 from concurrent.futures._base import Future, CancelledError
 from concurrent.futures.thread import ThreadPoolExecutor
+from getpass import getpass
 from io import StringIO
-from typing import Callable, List, Dict
+from typing import Callable, List, Dict, TypeVar
 import sys
 from enum import Enum
 
@@ -27,15 +28,27 @@ from openstack_cli.modules.openstack.api_objects import ApiErrorResponse
 from openstack_cli.modules.progressbar import ProgressBar, ProgressBarOptions, CharacterStyles, get_terminal_size
 
 
+T = TypeVar('T')
+
+
 class TableStyle(Enum):
   default = 0
   line_highlight = 1
 
 
+class TableColumnPosition(Enum):
+  left = "<"
+  right = ">"
+  center = "^"
+
+
 class TableColumn(object):
-  def __init__(self, name: str, length: int):
-    self.name = name
-    self.length = length
+  def __init__(self, name: str = "", length: int = 1, pos: TableColumnPosition = TableColumnPosition.left,
+               inv_ch: int = 0):
+    self.name: str = name
+    self.length: int = max(length, len(name))
+    self.inv_ch: int = inv_ch   # invisible_characters, such as color escape codes
+    self.pos: str = pos.value
 
 
 class TableSizeColumn(object):
@@ -70,29 +83,40 @@ class TableSizeColumn(object):
 
 
 class TableOutput(object):
-  def __init__(self, *columns: TableColumn, style: TableStyle = TableStyle.default):
+  def __init__(self, *columns: TableColumn, style: TableStyle = TableStyle.default, print_row_number: bool = False):
+    self.__print_row_number = print_row_number
+    columns = [TableColumn(length=3)] + list(columns) if print_row_number else columns
+
     self.__columns = columns
-    self.__column_pattern = "  ".join([f"{{:<{c.length}}}" for c in columns])
+    self.__column_pattern = "  ".join([f"{{:{c.pos}{c.length}}}" for c in columns])
+    self.__column_inv_pattern = "  ".join([f"{{:{c.pos}{c.length + c.inv_ch}}}" for c in columns])
     self.__sep_columns = ["-" * c.length for c in columns]
     self.__style = style
     self.__prev_color = Colors.RESET
+    self.__current_row = 0
 
   def print_header(self):
     print(self.__column_pattern.format(*[c.name for c in self.__columns]))
     print(self.__column_pattern.format(*self.__sep_columns))
 
   def print_row(self, *values: str):
+    if self.__print_row_number:
+      values = [str(self.__current_row)] + list(values)
+
     if self.__style == TableStyle.line_highlight:
-      print(f"{self.__prev_color}{self.__column_pattern.format(*values)}{Colors.RESET}")
+      print(f"{self.__prev_color}{self.__column_inv_pattern.format(*values)}{Colors.RESET}")
     else:
-      print(self.__column_pattern.format(*values))
+      print(self.__column_inv_pattern.format(*values))
 
     if values[-1:][0]:
       self.__prev_color = Colors.BRIGHT_WHITE if self.__prev_color == Colors.RESET else Colors.RESET
 
+    if self.__print_row_number:
+      self.__current_row += 1
+
 
 class StatusOutput(object):
-  def __init__(self, f: Callable[[], bool], pool_size: int = 5):
+  def __init__(self, f: Callable[[], bool] or None = None, pool_size: int = 5):
     self.__callable: Callable[[None], bool] = f
     self.__pool_size = pool_size
     self.__errors = []
@@ -139,7 +163,7 @@ class StatusOutput(object):
           self.__ci += 1
 
     print("")
-    print("///////// END Oooops, something went wrong")
+    print("///////// Raaawr, something went wrong")
     if self.__out:
       _print("-----[STDOUT]")
       for line in self.__out:
@@ -160,8 +184,8 @@ class StatusOutput(object):
         try:
           _print("")
           error_response = ApiErrorResponse(serialized_obj=line.split(JSONValueError.KEY)[1])
-          _print(f"Error code: {error_response.conflictingRequest.code}")
-          _print(f"Message: {error_response.conflictingRequest.message}")
+          _print(f"Error code: {error_response.code}")
+          _print(f"Message: {error_response.message}")
           _print("")
         except Exception:
           _print(line)
@@ -228,10 +252,24 @@ class StatusOutput(object):
 
 
 class Console(object):
+
+  @classmethod
+  def ask_pass(cls, *args: str) -> str:
+    return getpass(" ".join(args))
+
   @classmethod
   def ask_confirmation(cls, t: str) -> bool:
     r: str = input(f"{t} (Y/N): ")
     return r.lower() == "y"
+
+  @classmethod
+  def ask(cls, text: str, _type: T = str) -> T or None:
+    r: str = input(f"{text}: ")
+    try:
+      return _type(r)
+    except (TypeError, ValueError):
+      cls.print_error(f"Expecting type '{_type.__name__}', got value '{r}'")
+      return None
 
   @classmethod
   def print_list(cls, servers: Dict[str, List[OpenStackVMInfo]]):
@@ -239,12 +277,32 @@ class Console(object):
 
     for cl_name, servers in servers.items():
       print(
-        f"{Colors.BRIGHT_YELLOW}{cl_name:{max_cluster_name}}{Colors.RESET} // 🖥{len(servers)}[.{servers[0].domain}]"
+        f"{Colors.BRIGHT_YELLOW}{cl_name:{max_cluster_name}}{Colors.RESET} {{🖥{len(servers)}; @{servers[0].domain}}}"
       )
     print()
 
   @classmethod
+  def print_warning(cls, *text: str):
+    print(f"{Colors.BRIGHT_CYAN}///{Colors.YELLOW}Warning{Colors.RESET} -> ", *text)
+    print()
+
+  @classmethod
+  def print_error(cls, *text: str):
+    print(f"{Colors.BRIGHT_CYAN}///{Colors.BRIGHT_RED}Error{Colors.RESET} -> ", *text)
+
+  @classmethod
+  def print_debug(cls, *text: str):
+    print(f"{Colors.BRIGHT_BLUE}[DEBUG]{Colors.RESET}: {Colors.YELLOW}", *text, Colors.RESET)
+
+  @classmethod
+  def print(cls, *args: str):
+    print(*args)
+
+  @classmethod
   def confirm_operation(cls, op: str, servers: Dict[str, List[OpenStackVMInfo]]) -> bool:
     summary_servers: int = sum([len(v) for v in servers.values()])
+    if summary_servers == 0:
+      print("No items to process")
+      return False
     cls.print_list(servers)
     return cls.ask_confirmation(f"Confirm {op} operation for {summary_servers} hosts")

@@ -43,22 +43,23 @@ def get_lifetime(timestamp: datetime):
   return f"{int(hours)}h {int(minutes)}m" if days == 0 else f"{days} day(s)"
 
 
-def __init__(conf: Configuration, search_pattern: str):
-  ostack = OpenStack(conf)
+def __init__(conf: Configuration, search_pattern: str, debug: bool):
+  ostack = OpenStack(conf, debug=debug)
   clusters = ostack.get_server_by_cluster(search_pattern=search_pattern, sort=True)
   max_host_len = ostack.servers.max_host_len + 5
+  max_fqdn_len = ostack.servers.max_host_len + ostack.servers.max_domain_len + 5
 
   print("{:1} {:<{}s} {:<{}s} {:<16} {:<5}".format(
     " " * 2,
     "  Cluster name", max_host_len,
-    "  Host name", max_host_len,
+    "  Host name", max_fqdn_len,
     "  Host IP",
     "  Uptime"
   ))
   print("{:1} {:<{}s} {:<{}s} {:<16} {:<5}".format(
     " " * 2,
     "-" * max_host_len, max_host_len,
-    "-" * max_host_len, max_host_len,
+    "-" * max_fqdn_len, max_fqdn_len,
     "-" * 16,
     "-" * 10))
 
@@ -74,7 +75,7 @@ def __init__(conf: Configuration, search_pattern: str):
       print(" {:1} {:<{}s} {:<{}s} {:<16} {:<5}".format(
         run_state,
         server.cluster_name, max_host_len,
-        server.name, max_host_len,
+        server.fqdn, max_fqdn_len,
         server.ip_address if server.ip_address else "0.0.0.0",
         lifetime
       ))

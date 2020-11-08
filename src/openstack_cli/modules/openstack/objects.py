@@ -57,6 +57,34 @@ class ImageStatus(Enum):
  importing = "importing"
 
 
+class ServerState(Enum):
+  active = "ACTIVE"
+  building = "BUILDING"
+  build = "BUILD"
+  deleted = "DELETED"
+  error = "ERROR"
+  paused = "PAUSED"
+  rescued = "RESCUED"
+  resized = "RESIZED"
+  shelved = "SHELVED"
+  shelved_offloaded = "SHELVED_OFFLOADED"
+  soft_deleted = "SOFT_DELETED"
+  stopped = "STOPPED"
+  suspended = "SUSPENDED"
+  shutoff = "SHUTOFF"
+
+  @classmethod
+  def from_str(cls, state: str = "ERROR"):
+    """
+    :rtype ServerState
+    """
+    items = {v.value: v for k, v in cls.__dict__.items() if k[:1] != "_" and not isinstance(v, classmethod)}
+    if state in items:
+      return items[state]
+
+    raise ValueError(f"Unknown '{state}' state")
+
+
 class ServerPowerState(Enum):
   """
   https://docs.openstack.org/api-ref/compute/?expanded=list-servers-detailed-detail
@@ -222,7 +250,7 @@ class OpenStackVMInfo(object):
   def __init__(self):
     self.name: str or None = None
     self.id: str or None = None
-    self.status: str or None = None
+    self.status: ServerState = ServerState.error
     self.state: ServerPowerState = ServerPowerState.nostate
     self.created: datetime or None = None
     self.updated: datetime or None = None
@@ -454,6 +482,10 @@ class VMCreateBuilder(object):
     self.__vm.key_name = key_name
     return self
 
+  def enable_reservation_id(self):
+    self.__vm.return_reservation_id = "True"
+    return self
+
   def add_network(self, network: OSNetworkItem):
     self.__vm.networks.append(VMCreateNetworksItem(uuid=network.network_id))
     return self
@@ -475,7 +507,7 @@ class VMCreateBuilder(object):
     self.__vm.personality.append(f)
     return self
 
-  def set_user_date(self, value: str):
+  def set_user_data(self, value: str):
     self.__vm.user_data = base64.b64encode(bytearray(value, encoding="UTF-8")).decode("UTF-8")
     return self
 
@@ -498,10 +530,14 @@ class OpenStackVM(object):
                networks: OSNetwork
                ):
     self.__max_host_name_len = 0
+    self.__max_domain_name_len = 0
     self.__items = []
     self.__n = 0
     # ToDo: do not hardcode net
     net: OSNetworkItem = [n for n in networks.items if n.name == "INTERNAL_NET"][0]
+
+    if net and net.domain_name:
+      self.__max_domain_name_len = len(net.domain_name)
 
     for server in servers:
       vm = OpenStackVMInfo()
@@ -513,7 +549,7 @@ class OpenStackVM(object):
       vm._original = server
       vm.name = server.name
       vm.id = server.id
-      vm.status = server.status
+      vm.status = ServerState.from_str(server.status)
       try:
         vm.created = datetime.utcfromtimestamp(mktime(strptime(server.created, "%Y-%m-%dT%H:%M:%SZ")))
       except ValueError:
@@ -549,6 +585,10 @@ class OpenStackVM(object):
   @property
   def max_host_len(self):
     return self.__max_host_name_len
+
+  @property
+  def max_domain_len(self):
+    return self.__max_domain_name_len
 
   def __iter__(self):
     self.__n = 0

@@ -216,16 +216,19 @@ class CommandMetaInfo(object):
 
     return parsed_arguments_dict
 
-  def transform_arguments(self, kwargs: dict, fail_on_unknown: bool = False):
+  def transform_arguments(self, kwargs: dict, kwargs_injected: set, fail_on_unknown: bool = False):
     parsed_arguments_dict = {}
     arguments = self._arguments.arguments_by_alias
 
     if fail_on_unknown:
-      unknown_commands = set(kwargs.keys()) - set(arguments.keys())
+      unknown_commands = set(kwargs.keys()) - set(arguments.keys()) - kwargs_injected
       if unknown_commands:
         raise CommandArgumentException(f"Command contains unknown arguments  \"{', '.join(unknown_commands)}\"")
 
     for arg_name in arguments:
+      if arg_name in kwargs_injected:
+        continue
+
       arg_meta: CommandArgumentItem = arguments[arg_name]
       try:
         if arg_meta.value_type:
@@ -255,7 +258,7 @@ class CommandModule(object):
       injected_args = set()
 
     args = self.__meta_info.transform_default_arguments(args, fail_on_unknown=fail_on_unknown)
-    args.update(self.__meta_info.transform_arguments(kwargs, fail_on_unknown=fail_on_unknown))
+    args.update(self.__meta_info.transform_arguments(kwargs, injected_args, fail_on_unknown=fail_on_unknown))
 
     f_args = self.entry_point_args
 

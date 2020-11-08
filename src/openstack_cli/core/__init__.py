@@ -14,12 +14,17 @@
 # limitations under the License.
 
 
+import os
 from openstack_cli import commands
 from openstack_cli.modules.config import Configuration
 
 
 def main_entry():
   conf: Configuration = Configuration()
+  is_debug: bool = "debug" in commands.discovery.kwargs_name
+  if is_debug:
+    os.putenv("API_DEBUG", "True")
+
   # currently hack to avoid key generating on reset command
   if commands.discovery.command_name == "conf" and commands.discovery.command_arguments[:1] == "reset":
     pass
@@ -27,7 +32,8 @@ def main_entry():
     conf.initialize()
 
   commands.discovery.start_application(kwargs={
-    "conf": conf
+    "conf": conf,
+    "debug": is_debug
   })
 
 

@@ -395,6 +395,7 @@ class VMCreateServerItem(SerializableObject):
   user_data: str = None
   min_count: str = None
   max_count: str = None
+  return_reservation_id: str = None
 
 
 class VMCreateServer(SerializableObject):
@@ -411,6 +412,7 @@ class VMCreateResponseItem(SerializableObject):
 
 class VMCreateResponse(SerializableObject):
   server: VMCreateResponseItem = None
+  reservation_id: str = None
 
 
 class ComputeServerActions(Enum):
@@ -467,3 +469,81 @@ class ApiErrorMessage(SerializableObject):
 
 class ApiErrorResponse(SerializableObject):
   conflictingRequest: ApiErrorMessage = ApiErrorMessage()
+  badRequest: ApiErrorMessage = ApiErrorMessage()
+  itemNotFound: ApiErrorMessage = ApiErrorMessage()
+
+  @property
+  def message(self) -> str:
+    if self.conflictingRequest.code != 0:
+      return self.conflictingRequest.message
+
+    if self.badRequest.code != 0:
+      return self.badRequest.message
+
+    if self.itemNotFound.code != 0:
+      return self.itemNotFound.message
+
+    raise RuntimeError("No exception")
+
+  @property
+  def code(self) -> int:
+    if self.conflictingRequest.code != 0:
+      return self.conflictingRequest.code
+
+    if self.badRequest.code != 0:
+      return self.badRequest.code
+
+    if self.itemNotFound.code != 0:
+      return self.itemNotFound.code
+
+    raise RuntimeError("No exception")
+
+
+class VMKeypairItemValue(SerializableObject):
+  public_key: str = ""
+  private_key: str = ""   # this is custom field to store internally private key as well
+  user_id: str = ""
+  name: str = ""
+  deleted: bool = False
+  created_at: str = ""
+  updated_at: str = ""
+  fingerprint: str = ""
+  deleted_at: str = ""
+  type: str = ""
+  id: int = 0
+
+  def __hash__(self):
+    return hash((self.name, self.public_key))
+
+
+class VMKeyPairItemBuilder(object):
+  def __init__(self):
+    self.__key = VMKeypairItemValue()
+
+  def set_name(self, name: str):
+    self.__key.name = name
+    return self
+
+  def set_public_key(self, key: str or bytes):
+    if isinstance(key, bytes):
+      key = key.decode("UTF-8")
+    self.__key.public_key = key
+    return self
+
+  def set_private_key(self, key: str or bytes):
+    if isinstance(key, bytes):
+      key = key.decode("UTF-8")
+    self.__key.private_key = key
+    return self
+
+  def build(self):
+    return self.__key
+
+class VMKeypairItem(SerializableObject):
+  keypair: VMKeypairItemValue = None
+
+
+class VMKeypairs(SerializableObject):
+  keypairs: List[VMKeypairItem] = []
+  keypairs_links: List[Links] = []
+

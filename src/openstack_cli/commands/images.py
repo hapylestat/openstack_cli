@@ -20,7 +20,7 @@ from openstack_cli.modules.config import Configuration
 from openstack_cli.modules.discovery import CommandMetaInfo
 
 
-__module__ = CommandMetaInfo("os-images")
+__module__ = CommandMetaInfo("images")
 __args__ = __module__.get_arguments_builder() \
   .add_argument("all", bool, "Display all available images", default=False)\
   .add_argument("snapshots", bool, "Display only snapshots", default=False)\
@@ -99,10 +99,10 @@ def show_normal(ostack: OpenStack, search_pattern: str):
   images = ostack.os_images
 
   table = TableOutput(
-    TableColumn("Name", 30),
-    TableColumn("Alias", 30),
+    TableColumn("Name", 20),
+    TableColumn("Alias", 20),
     TableColumn("Size", 9),
-    TableColumn("Description", 90)
+    TableColumn("Description", 60)
   )
   table.print_header()
 

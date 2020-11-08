@@ -216,3 +216,6 @@ class SerializableObject(object):
         else:
           ret[k] = v
     return ret
+
+  def to_json(self) -> str:
+    return json.dumps(self.serialize())

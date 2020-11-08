@@ -26,7 +26,7 @@ import json
 import time
 from enum import Enum
 from getpass import getpass
-from typing import List, Callable
+from typing import List, Callable, Tuple, Iterable
 from openstack_cli.modules.config.base import BaseStorage
 from cryptography.fernet import Fernet, InvalidToken
 
@@ -247,6 +247,40 @@ class SQLStorage(BaseStorage):
   def reset_properties_update_time(self, table: str):
     self._query(f"update {table} set updated=0.1", commit=True)
 
+  def get_property_list(self, table: str) -> List[str]:
+    if table not in self.__tables:
+      return []
+
+    result_set = self._query(f"select name from {table}")
+    if not result_set:
+      return []
+
+    return [item[0] for item in result_set]
+
+  def __transform_property_value(self, name: str, p_type: str, p_updated: str, p_value: str) -> StorageProperty:
+    pt_type = StoragePropertyType.from_string(p_type)
+
+    if pt_type == StoragePropertyType.encrypted:
+      p_value = self._decrypt(p_value)
+
+    if pt_type == StoragePropertyType.json:
+      p_value = json.loads(p_value)
+
+    return StorageProperty(name, StoragePropertyType.from_string(p_type), p_value, p_updated)
+
+  def get_properties(self, table: str) -> List[StorageProperty]:
+    """
+    Return array of properties in form of:
+    ...
+    key_name, key_value
+    ...
+    """
+    if table not in self.__tables:
+      return []
+
+    result_set = self._query(f"select name, type, updated, store from {table}")
+    return [self.__transform_property_value(*item) for item in result_set]
+
   def get_property(self, table: str, name: str, default=StorageProperty()) -> StorageProperty:
     if table not in self.__tables:
       return default
@@ -258,15 +292,8 @@ class SQLStorage(BaseStorage):
       return default
 
     p_type, p_updated, p_value = result_set
-    pt_type = StoragePropertyType.from_string(p_type)
 
-    if pt_type == StoragePropertyType.encrypted:
-      p_value = self._decrypt(p_value)
-
-    if pt_type == StoragePropertyType.json:
-      p_value = json.loads(p_value)
-
-    return StorageProperty(name, p_type, p_value, p_updated)
+    return self.__transform_property_value(name, p_type, p_updated, p_value)
 
   def set_property(self, table: str, prop: StorageProperty, encrypted: bool = False):
     if table not in self.__tables:
@@ -289,10 +316,20 @@ class SQLStorage(BaseStorage):
     else:
       self._query(f"insert into {table} (store, type, updated, name) values (?,?,?,?);", args, commit=True)
 
+  def delete_property(self, table: str, name: str) -> bool:
+    if table not in self.__tables:
+      return True
+
+    if not self.property_existed(table, name):
+      return True
+
+    self._query(f"delete from {table} where name=?", [name], commit=True)
+    return True
+
   def set_text_property(self, table: str, name: str, value, encrypted: bool = False):
      p = StorageProperty(name, StoragePropertyType.text, value)
      self.set_property(table, p, encrypted)
 
-  def property_existed(self, table: str, name: str):
+  def property_existed(self, table: str, name: str) -> bool:
     result_set = self._query(f"select store from {table} where name=?;", [name])
     return True if result_set else False
