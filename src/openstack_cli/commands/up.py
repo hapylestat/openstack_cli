@@ -65,7 +65,7 @@ def __init__(conf: Configuration, name: str, count: int, flavor: str, image: str
         img_flavor = fl
         break
 
-  _default_key = ostack.get_keypairs()[0]
+  _default_key = ostack.get_keypairs()[0] if ostack.get_keypairs() else None
   _key = _default_key if not key else ostack.get_keypair(name, _default_key)
   _pass = conf.default_vm_password if not password else password
 
@@ -125,6 +125,6 @@ def __init__(conf: Configuration, name: str, count: int, flavor: str, image: str
       users = line.split("@users@:")[1].strip().split(" ")
       to.print_row("User accounts", ",".join(users))
 
-  to.print_row("Used key", _key.name)
+  to.print_row("Used key", _key.name if _key else "Not used")
   to.print_row("Used password", _pass)
 

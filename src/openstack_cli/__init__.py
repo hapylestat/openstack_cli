@@ -14,4 +14,4 @@
 # limitations under the License.
 
 __app_name__ = "openstack-cli"
-__app_version__ = "1.0.dev0"
+__app_version__ = "1.0"

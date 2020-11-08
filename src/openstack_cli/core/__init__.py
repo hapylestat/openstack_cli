@@ -24,17 +24,22 @@ def main_entry():
   is_debug: bool = "debug" in commands.discovery.kwargs_name
   if is_debug:
     os.putenv("API_DEBUG", "True")
+  try:
+    # currently hack to avoid key generating on reset command
+    if commands.discovery.command_name == "conf" and commands.discovery.command_arguments[:1] == "reset":
+      pass
+    else:
+      conf.initialize()
 
-  # currently hack to avoid key generating on reset command
-  if commands.discovery.command_name == "conf" and commands.discovery.command_arguments[:1] == "reset":
-    pass
-  else:
-    conf.initialize()
-
-  commands.discovery.start_application(kwargs={
-    "conf": conf,
-    "debug": is_debug
-  })
+    commands.discovery.start_application(kwargs={
+      "conf": conf,
+      "debug": is_debug
+    })
+  except Exception as e:
+    if is_debug:
+      raise e
+    else:
+      print(f"Error: {str(e)}")
 
 
 if __name__ == "__main__":

@@ -65,6 +65,7 @@ def print_cluster(servers: Dict[str, List[OpenStackVMInfo]]):
 
 
 def __init__(conf: Configuration, search_pattern: str):
+  ostack = OpenStack(conf)
   clusters = ostack.get_server_by_cluster(search_pattern=search_pattern, sort=True)
 
   if search_pattern and len(clusters) == 0:

@@ -123,6 +123,8 @@ class SQLStorage(BaseStorage):
     if os.path.exists(self.configuration_file_path):
       os.remove(self.configuration_file_path)
 
+    self._db_connection = sqlite3.connect(self.configuration_file_path, check_same_thread=False)
+
   def create_key(self, persist: bool, master_password: str):
     if persist and master_password is None:
       print("Notice: With no password set would be generated default PC-depended encryption key")

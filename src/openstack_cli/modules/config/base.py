@@ -42,7 +42,7 @@ class BaseStorage(object):
       self.__system: str = sys.platform
 
       from openstack_cli import __app_name__ as app_name, __app_version__ as app_version
-      self.__config_dir: str = self.__user_data_dir(appname=app_name, version=app_version)
+      self.__config_dir: str = self.__user_data_dir(appname=app_name, version=None)
 
       if self.__config_dir and not os.path.exists(self.__config_dir):
         os.makedirs(self.__config_dir, exist_ok=True)

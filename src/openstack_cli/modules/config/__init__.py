@@ -279,18 +279,43 @@ class Configuration(object):
 
     from openstack_cli.modules.openstack import OpenStack
 
-    self.os_address = self.__ask_text_question("OpenStack address: ")
-    self.os_login = self.__ask_text_question("OpenStack login: ")
-    self.os_password = self.__ask_text_question("OpenStack password", encrypted=True)
+    self.os_address = self.__ask_text_question("OpenStack identity api address: ")
+    self.os_login = self.__ask_text_question("OpenStack username: ")
+    self.os_password = self.__ask_text_question("OpenStack password: ", encrypted=True)
 
+    print("Trying connect to the API...")
     osvm = OpenStack(self)
+    if osvm.has_errors:
+      from openstack_cli.core.output import StatusOutput
+      so = StatusOutput()
+      so.check_issues(osvm.last_errors)
+      self.reset()
+      raise RuntimeError("Unable to continue")
 
     self.__test_encrypted_property = "test"
 
-    _p = getpass("Default VM password: ")
+    from openstack_cli.commands.networks import print_networks
+
+    print("Please select default network for the VM (could be changed via 'conf network' command):")
+    _net = print_networks(ostack=osvm, select=True)
+    if not _net:
+      raise RuntimeError("Network is not selected")
+    self.default_network = _net
+
+    _p = self.__ask_text_question("Default VM password: ", encrypted=True)
     if not _p:  # ToDo: add more strict check
       _p = "qwerty"
     self.default_vm_password = _p
+
+    from openstack_cli.commands.conf import _keys_create
+    _default_keypair_name = "default"
+    _existing_key = osvm.get_keypair(_default_keypair_name)
+    if _existing_key:
+      print(f"Keypair with name '{_default_keypair_name}' already exist, need to be removed")
+      osvm.delete_keypair(_default_keypair_name)
+
+    _keys_create(self, osvm, _default_keypair_name)
+    print(f"Key '{_default_keypair_name}' could be exported using command 'conf keys export {_default_keypair_name}'")
 
     self.is_conf_initialized = True
     print("Tool configuration is done, thanks!")
