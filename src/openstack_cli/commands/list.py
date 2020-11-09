@@ -64,7 +64,7 @@ def print_cluster(servers: Dict[str, List[OpenStackVMInfo]]):
     server = _servers[0]
     num_running: int = len([s for s in _servers if s.state == ServerPowerState.running])
     num_paused: int = len([s for s in _servers if s.state == ServerPowerState.paused])
-    num_stopped: int = len(servers) - num_running - num_paused
+    num_stopped: int = len(_servers) - num_running - num_paused
 
     to.print_row(
       cluster_name,
