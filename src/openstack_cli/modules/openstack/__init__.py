@@ -135,7 +135,12 @@ class OpenStack(object):
     _t_start = 0
     if self.__debug:
       _t_start = time.time_ns()
-    r = curl(f"{self.__login_api}/v3/auth/tokens", req_type=CurlRequestType.GET, headers=headers)
+    try:
+      r = curl(f"{self.__login_api}/v3/auth/tokens", req_type=CurlRequestType.GET, headers=headers)
+    except TimeoutError:
+      from openstack_cli.core.output import Console
+      Console.print_error("Auth timeout error")
+      return False
 
     if self.__debug:
       from openstack_cli.core.output import Console
@@ -171,7 +176,13 @@ class OpenStack(object):
     if self.__debug:
       _t_start = time.time_ns()
 
-    r = curl(f"{self.__login_api}/v3/auth/tokens", req_type=CurlRequestType.POST, data=data)
+    try:
+      r = curl(f"{self.__login_api}/v3/auth/tokens", req_type=CurlRequestType.POST, data=data)
+    except TimeoutError:
+      from openstack_cli.core.output import Console
+      Console.print_error("Auth timeout error")
+      return False
+
     if self.__debug:
       from openstack_cli.core.output import Console
       _t_delta = time.time_ns() - _t_start

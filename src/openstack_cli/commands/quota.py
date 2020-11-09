@@ -14,6 +14,8 @@
 # limitations under the License.
 from typing import List
 
+from openstack_cli.core.output import TableOutput, TableColumn, TableColumnPosition
+
 from openstack_cli.core.colors import Colors
 from openstack_cli.modules.config import Configuration
 from openstack_cli.modules.discovery import CommandMetaInfo
@@ -44,19 +46,29 @@ def __init__(conf: Configuration):
   stack = OpenStack(conf)
   limits = stack.quotas
 
+  to = TableOutput(
+    TableColumn("Metric", length=limits.max_metric_len, pos=TableColumnPosition.right, sep=":"),
+    TableColumn("Used", length=7, pos=TableColumnPosition.right, sep="|",),
+    TableColumn("Avl.", length=7, pos=TableColumnPosition.right, sep="|",),
+    TableColumn("Total", length=7, pos=TableColumnPosition.right),
+    TableColumn("", length=30)
+  )
+
   print(f"Region {conf.region} stats\n")
-  print(f"{'Metric':>{limits.max_metric_len}}: {'Used':>7} | {'Avl.':>7} | {'Total':>7}")
-  print(f"{' ':5}{'-'*int(((13 + 7 + 7 + 3) * 1.4))}")
+
+  to.print_header(solid=True)
+
   for metric in limits:
     prc = get_percents(metric.used, metric.max_count)
     c_end = Colors.RESET if prc > 80 else ""
     c_start = Colors.RED if prc > 90 else Colors.YELLOW if prc > 80 else ""
 
-    print(f"{c_start}{metric.name:>{limits.max_metric_len}}{c_end}:"
-          f" {c_start}{metric.used:>7}{c_end} |"
-          f" {metric.available:>7} |"
-          f" {metric.max_count:>7} {get_progressbar(prc, c_start)}"
-          f" {c_start}{prc:.1f}%{c_end}"
+    to.print_row(
+      f"{c_start}{metric.name}{c_end}",
+      f"{c_start}{metric.used}{c_end}",
+      metric.available,
+      metric.max_count,
+      f"{get_progressbar(prc, c_start)} {c_start}{prc:.1f}%{c_end}"
     )
 
   print()

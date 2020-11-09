@@ -44,11 +44,19 @@ class TableColumnPosition(Enum):
 
 class TableColumn(object):
   def __init__(self, name: str = "", length: int = 1, pos: TableColumnPosition = TableColumnPosition.left,
-               inv_ch: int = 0):
+               inv_ch: int = 0, sep: str = ""):
+    """
+    :param name: Column name
+    :param length:  column width
+    :param pos: Cell position align
+    :param inv_ch: number of invisible characters
+    :param sep: delimiter between columns
+    """
     self.name: str = name
     self.length: int = max(length, len(name))
     self.inv_ch: int = inv_ch   # invisible_characters, such as color escape codes
     self.pos: str = pos.value
+    self.sep: str = f" {sep}" if name else ""
 
 
 class TableSizeColumn(object):
@@ -88,16 +96,19 @@ class TableOutput(object):
     columns = [TableColumn(length=3)] + list(columns) if print_row_number else columns
 
     self.__columns = columns
-    self.__column_pattern = "  ".join([f"{{:{c.pos}{c.length}}}" for c in columns])
-    self.__column_inv_pattern = "  ".join([f"{{:{c.pos}{c.length + c.inv_ch}}}" for c in columns])
-    self.__sep_columns = ["-" * c.length for c in columns]
+    self.__column_pattern = "  ".join([f"{{:{c.pos}{c.length}}}{c.sep}" for c in columns])
+    self.__column_inv_pattern = "  ".join([f"{{:{c.pos}{c.length + c.inv_ch}}}{c.sep}" for c in columns])
+    self.__sep_columns = [("-" if c.name else " ") * c.length for c in columns]
     self.__style = style
-    self.__prev_color = Colors.RESET
+    self.__prev_color = Colors.BRIGHT_BLACK
     self.__current_row = 0
 
-  def print_header(self):
+  def print_header(self, solid: bool = False):
     print(self.__column_pattern.format(*[c.name for c in self.__columns]))
-    print(self.__column_pattern.format(*self.__sep_columns))
+    if solid:
+      print("-" * sum([c.length + len(c.sep) for c in self.__columns]))
+    else:
+      print(self.__column_pattern.format(*self.__sep_columns))
 
   def print_row(self, *values: str):
     if self.__print_row_number:
@@ -109,7 +120,7 @@ class TableOutput(object):
       print(self.__column_inv_pattern.format(*values))
 
     if values[-1:][0]:
-      self.__prev_color = Colors.BRIGHT_WHITE if self.__prev_color == Colors.RESET else Colors.RESET
+      self.__prev_color = Colors.BRIGHT_WHITE if self.__prev_color == Colors.BRIGHT_BLACK else Colors.BRIGHT_BLACK
 
     if self.__print_row_number:
       self.__current_row += 1

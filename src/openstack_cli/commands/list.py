@@ -16,6 +16,8 @@
 from datetime import datetime
 from typing import List, Dict
 
+from openstack_cli.core.output import TableOutput, TableColumn
+
 from openstack_cli.core.colors import Colors
 from openstack_cli.modules.config import Configuration
 from openstack_cli.modules.discovery import CommandMetaInfo
@@ -44,8 +46,19 @@ def get_lifetime(timestamp: datetime):
 
 
 def print_cluster(servers: Dict[str, List[OpenStackVMInfo]]):
-  print("{:40}  {:20} {:20} {:22} {:10}".format("Cluster", "VmType", "Status", "Created (UTC)", "Lifetime"))
-  print("{:40}  {:20} {:20} {:22} {:10}".format("-" * 40, "-" * 20, "-" * 20, "-" * 22, "-" * 10))
+  __run_ico = f"{Colors.GREEN}► {Colors.RESET}"
+  __pause_ico = f"{Colors.YELLOW}❚❚ {Colors.RESET}"
+  __stop_ico = f"{Colors.RED}■ {Colors.RESET}"
+
+  to = TableOutput(
+    TableColumn("Cluster", length=40),
+    TableColumn("VmType", length=20),
+    TableColumn("Status", length=20, inv_ch=len(Colors.GREEN)*3+len(Colors.RESET)*3),
+    TableColumn("Network name", length=15),
+    TableColumn("Lifetime", length=10)
+  )
+
+  to.print_header()
 
   for cluster_name, _servers in servers.items():
     server = _servers[0]
@@ -53,15 +66,13 @@ def print_cluster(servers: Dict[str, List[OpenStackVMInfo]]):
     num_paused: int = len([s for s in _servers if s.state == ServerPowerState.paused])
     num_stopped: int = len(servers) - num_running - num_paused
 
-    print("{:40}  {:20} {:20}  {:22}  {:10}".format(
+    to.print_row(
       cluster_name,
       server.flavor.name,
-      f"{Colors.GREEN}► {Colors.RESET}{num_running:<3}"
-      f" {Colors.YELLOW}❚❚ {Colors.RESET}{num_paused:<3}"
-      f" {Colors.RED}■ {Colors.RESET}{num_stopped:<3}",
-      server.created.strftime("%d/%m/%Y %H:%M:%S"),
+      f"{__run_ico}{num_running:<3}{__pause_ico}{num_paused:<3}{__stop_ico}{num_stopped:<3}",
+      server.net_name,
       get_lifetime(server.created)
-    ))
+    )
 
 
 def __init__(conf: Configuration, search_pattern: str):

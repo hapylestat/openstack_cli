@@ -12,8 +12,9 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 from enum import Enum
-from typing import List
+from typing import List, Dict
 from openstack_cli.modules.json2obj import SerializableObject
 
 
@@ -271,7 +272,8 @@ class ComputeServerInfo(SerializableObject):
   flavor: OpenStackRelation = None
   links: List[Links] = []
   image: OpenStackRelation = None
-  addresses: ComputeServerAddress = None
+  #addresses: ComputeServerAddress = None
+  addresses: Dict[str, List[ComputeServerAddressInfo]] = {}
   fault: ComputeServerFault = None
 
 

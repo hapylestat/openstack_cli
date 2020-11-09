@@ -21,7 +21,7 @@
 
 import json
 from types import FunctionType
-from typing import List, Optional, get_type_hints
+from typing import List, Optional, get_type_hints, get_args
 
 # all annotations now returned as string and should be parsed via  typing.get_type_hints
 # from __future__ import annotations
@@ -122,26 +122,28 @@ class SerializableObject(object):
             .replace("-", "_")\
             .replace(":", "_")
 
+        __annotations = get_type_hints(self.__class__)
+
         if k not in self.__class__.__dict__:
           t = "object" if not v else v.__class__.__name__
           errors.append(f"{self.__class__.__name__} doesn't contain property {k}: {t} (sample:{v})")
           continue
-        elif k not in self.__class__.__annotations__:
+        elif k not in __annotations:
           errors.append(f"{self.__class__.__name__} doesn't contain type annotation in the definition {k}")
           continue
 
-        attr_type = self.__class__.__annotations__[k]
-        is_annotated = "_GenericAlias" in attr_type.__class__.__name__
+        attr_type = __annotations[k]
+        is_annotated = len(get_args(attr_type)) != 0
         if is_annotated:
           name = attr_type.__dict__["_name"].lower()
-          attr_args: List[type] = attr_type.__dict__["__args__"]
+          attr_args: List[type] = list(get_args(attr_type))
         else:
           name = attr_type.__class__.__name__
           attr_args: List[type] = [attr_type[0]] if name == list else [attr_type]
 
         attr_type_arg: Optional[type] = attr_args[0] if attr_args else None
 
-        if name == "list" and attr_args and issubclass(attr_type_arg, SerializableObject):
+        if name == "list" and attr_args:
           obj_list = []
           if isinstance(v, list) or isinstance(v, List):
             for vItem in v:
@@ -149,19 +151,17 @@ class SerializableObject(object):
           else:
             obj_list.append(attr_type_arg(v))
           self.__setattr__(k, obj_list)
-        elif name == "list" and attr_args:
-          _lst = []
-          if isinstance(v, list) or isinstance(v, List):
-            for vItem in v:
-              _lst.append(attr_type_arg(vItem))
-          else:
-            _lst.append(attr_type_arg(v))
-          self.__setattr__(k, _lst)
         elif name == "dict" and attr_args and len(attr_args) == 2 and isinstance(v, dict):
           dict_item = {}
           for _k, _v in v.items():
             if _v:
-              _v = attr_args[1](_v)
+              _is_annotated = len(get_args(attr_args[1])) != 0
+              _type = attr_args[1]
+              if _is_annotated and isinstance(_v, list):
+                _type = get_args(attr_args[1])[0]
+                _v = [_type(_item) for _item in _v]
+              else:
+                _v = _type(_v)
 
             dict_item[_k] = _v
           self.__setattr__(k, dict_item)

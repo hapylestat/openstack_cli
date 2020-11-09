@@ -15,10 +15,11 @@
 
 import base64
 import re
+from calendar import timegm
 from datetime import datetime
 from enum import Enum
 from io import RawIOBase
-from time import strptime, mktime
+from time import strptime
 from typing import List, Dict, Tuple
 
 from openstack_cli.modules.json2obj import SerializableObject
@@ -256,6 +257,7 @@ class OpenStackVMInfo(object):
     self.updated: datetime or None = None
     self.owner_id: str or None = None
     self.owner_name: str or None = None
+    self.net_name: str or None = None
     self.ip_address: str or None = None
     self.image_id: str or None = None
     self.image: DiskImageInfo or None = None
@@ -551,14 +553,21 @@ class OpenStackVM(object):
       vm.id = server.id
       vm.status = ServerState.from_str(server.status)
       try:
-        vm.created = datetime.utcfromtimestamp(mktime(strptime(server.created, "%Y-%m-%dT%H:%M:%SZ")))
+        vm.created = datetime.utcfromtimestamp(timegm(strptime(server.created, "%Y-%m-%dT%H:%M:%SZ")))
       except ValueError:
         vm.created = None
       try:
-        vm.updated = datetime.utcfromtimestamp(mktime(strptime(server.updated, "%Y-%m-%dT%H:%M:%SZ")))
+        vm.updated = datetime.utcfromtimestamp(timegm(strptime(server.updated, "%Y-%m-%dT%H:%M:%SZ")))
       except ValueError:
         vm.updated = None
-      vm.ip_address = server.addresses.INTERNAL_NET[0].addr if server.addresses.INTERNAL_NET else "0.0.0.0"
+
+      if server.addresses.keys():
+        vm.net_name = list(server.addresses.keys())[0]
+        vm.ip_address = server.addresses[vm.net_name][0].addr if server.addresses[vm.net_name] else "0.0.0.0"
+      else:
+        vm.net_name = "NOT SET"
+        vm.ip_address = "0.0.0.0"
+
       vm.owner_id = server.user_id
       vm.owner_name = users.get_user(vm.owner_id)
       vm.image_id = server.image.id

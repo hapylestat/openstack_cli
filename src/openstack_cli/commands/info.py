@@ -15,6 +15,8 @@
 
 from datetime import datetime
 
+from openstack_cli.core.output import TableOutput, TableColumn
+
 from openstack_cli.core.colors import Colors
 from openstack_cli.modules.config import Configuration
 from openstack_cli.modules.discovery import CommandMetaInfo
@@ -37,45 +39,42 @@ def get_lifetime(timestamp: datetime):
     days = f"{Colors.RED}{d.days}{Colors.RESET}"
   else:
     days = d.days
-  hours = d.seconds / 3600
+  hours = int(d.seconds / 3600)
   minutes = (d.seconds / 60) - (hours * 60)
 
   return f"{int(hours)}h {int(minutes)}m" if days == 0 else f"{days} day(s)"
 
 
 def __init__(conf: Configuration, search_pattern: str, debug: bool):
+  __run_ico = f"{Colors.GREEN}► {Colors.RESET}"
+  __pause_ico = f"{Colors.YELLOW}❚❚ {Colors.RESET}"
+  __stop_ico = f"{Colors.RED}■ {Colors.RESET}"
+  __state = {
+    ServerPowerState.running: __run_ico,
+    ServerPowerState.paused: __pause_ico
+  }
+
   ostack = OpenStack(conf, debug=debug)
   clusters = ostack.get_server_by_cluster(search_pattern=search_pattern, sort=True)
   max_host_len = ostack.servers.max_host_len + 5
   max_fqdn_len = ostack.servers.max_host_len + ostack.servers.max_domain_len + 5
 
-  print("{:1} {:<{}s} {:<{}s} {:<16} {:<5}".format(
-    " " * 2,
-    "  Cluster name", max_host_len,
-    "  Host name", max_fqdn_len,
-    "  Host IP",
-    "  Uptime"
-  ))
-  print("{:1} {:<{}s} {:<{}s} {:<16} {:<5}".format(
-    " " * 2,
-    "-" * max_host_len, max_host_len,
-    "-" * max_fqdn_len, max_fqdn_len,
-    "-" * 16,
-    "-" * 10))
+  to = TableOutput(
+    TableColumn("", 2, inv_ch=len(Colors.GREEN) + len(Colors.RESET)),
+    TableColumn("Cluster name", max_host_len),
+    TableColumn("Host name", max_fqdn_len),
+    TableColumn("Host IP", 16),
+    TableColumn("Uptime", 10, inv_ch=len(Colors.GREEN) + len(Colors.RESET))
+  )
 
+  to.print_header()
   for cluster_name, servers in clusters.items():
     for server in servers:
       lifetime = get_lifetime(server.created)
-      run_state = f"{Colors.RED}■ {Colors.RESET}"
-      if server.state == ServerPowerState.running:
-        run_state = f"{Colors.GREEN}► {Colors.RESET}"
-      elif server.state == ServerPowerState.paused:
-        run_state = f"{Colors.YELLOW}❚❚ {Colors.RESET}"
-
-      print(" {:1} {:<{}s} {:<{}s} {:<16} {:<5}".format(
-        run_state,
-        server.cluster_name, max_host_len,
-        server.fqdn, max_fqdn_len,
+      to.print_row(
+        __state[server.state] if server.state in __state else __stop_ico,
+        server.cluster_name,
+        server.fqdn,
         server.ip_address if server.ip_address else "0.0.0.0",
         lifetime
-      ))
+      )

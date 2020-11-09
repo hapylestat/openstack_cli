@@ -23,7 +23,7 @@ def main_entry():
   conf: Configuration = Configuration()
   is_debug: bool = "debug" in commands.discovery.kwargs_name
   if is_debug:
-    os.putenv("API_DEBUG", "True")
+    os.environ["API_DEBUG"] = "True"
   try:
     # currently hack to avoid key generating on reset command
     if commands.discovery.command_name == "conf" and commands.discovery.command_arguments[:1] == "reset":
