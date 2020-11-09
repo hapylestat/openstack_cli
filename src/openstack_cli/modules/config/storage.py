@@ -244,6 +244,7 @@ class SQLStorage(BaseStorage):
     create table {table}(name TEXT UNIQUE, type TEXT, updated REAL DEFAULT 0, store CLOB);
     """
     self.execute_script(sql)
+    self._db_connection.commit()
     self.__tables.append(table)
 
   def reset_properties_update_time(self, table: str):
@@ -298,7 +299,7 @@ class SQLStorage(BaseStorage):
     return self.__transform_property_value(name, p_type, p_updated, p_value)
 
   def set_property(self, table: str, prop: StorageProperty, encrypted: bool = False):
-    if table not in self.__tables:
+    if table not in self.__get_table_list():
       self._create_property_table(table)
 
     if not encrypted and prop.property_type == StoragePropertyType.encrypted:
@@ -333,5 +334,8 @@ class SQLStorage(BaseStorage):
      self.set_property(table, p, encrypted)
 
   def property_existed(self, table: str, name: str) -> bool:
+    if table not in self.__get_table_list():
+      return False
+
     result_set = self._query(f"select store from {table} where name=?;", [name])
     return True if result_set else False

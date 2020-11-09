@@ -20,6 +20,7 @@ import os
 import re
 from typing import List
 
+from distutils.command.install import install
 from setuptools import find_packages, setup
 
 here = os.path.abspath(os.path.dirname(__file__))
@@ -31,23 +32,34 @@ def read(*parts):
     return fp.read()
 
 
-def find_tag(tag: str or List[str], *file_paths: str):
-  tag_file = read(*file_paths)
-  if isinstance(tag, str):
-    tag = [tag]
-
+def find_tag(tags: str or List[str], *file_paths: str, use_import: bool = False):
   result_list: List[str] = []
-  for t in tag:
-    tag_match = re.search(
-      rf"^__{t}__ = ['\"]([^'\"]*)['\"]",
-      tag_file,
-      re.M,
-    )
-    if tag_match:
-      result_list.append(tag_match.group(1))
+  if isinstance(tags, str):
+    tags = [tags]
 
-  if len(result_list) != len(tag):
-    raise RuntimeError(f"Unable to find some tag from the list: {', '.join(tag)}")
+  if use_import:
+    import importlib
+    _path = ".".join(file_paths)
+    if _path.endswith(".py"):
+      _path = _path[:-3]
+    m = importlib.import_module(_path)
+
+    for t in tags:
+      if f"__{t}__" in m.__dict__:
+        result_list.append(m.__dict__[f"__{t}__"])
+  else:
+    tag_file = read(*file_paths)
+    for t in tags:
+      tag_match = re.search(
+        rf"^__{t}__ = ['\"]([^'\"]*)['\"]",
+        tag_file,
+        re.M,
+      )
+      if tag_match:
+        result_list.append(tag_match.group(1))
+
+  if len(result_list) != len(tags):
+    raise RuntimeError(f"Unable to find some tag from the list: {', '.join(tags)}")
 
   return result_list
 
@@ -57,14 +69,52 @@ def load_requirements():
   return data.split("\n")
 
 
-app_name, app_version = find_tag(["app_name", "app_version"], "src", "openstack_cli", "__init__.py")
+def get_git_hash() -> str:
+  base_path = ".git"
+  head_path = os.path.join(base_path, "HEAD")
+  if not os.path.exists(head_path):
+    return "dev-build"
+  f = read(head_path)
+  _, _, ref_path = f.partition(":")
+
+  ref_path = os.path.join(base_path, ref_path.strip())
+  if not os.path.exists(ref_path):
+    return "dev-build"
+
+  f = read(ref_path)
+  return f.strip()
+
+
+app_name, app_version = find_tag(["app_name", "app_version"], "src", "openstack_cli", "__init__.py", use_import=True)
+git_hash = get_git_hash()
+
+
+class MyInstall(install):
+  def run(self):
+    install.run(self)
+    if "install_data" in self.__dict__:
+      os.makedirs(self.install_data, exist_ok=True)
+      with open(os.path.join(self.install_data, "conf.json"), "w+") as f:
+        import json
+        data = {
+          "app_name": app_name,
+          "app_version": app_version,
+          "commit_hash": git_hash
+        }
+        json.dump(data, f)
+
+    else:
+      raise RuntimeError("Unable to locate data directory")
+
+
+
 
 setup(
   name=app_name,
   version=app_version,
   description="OpenStack VM orchestrator",
   long_description="OpenStack VM orchestrator",
-  license='MIT',
+  license='ASF',
   classifiers=[
     "Programming Language :: Python",
     "Programming Language :: Python :: 3",
@@ -77,6 +127,9 @@ setup(
     where="src",
     exclude=["contrib", "docs", "tests*", "tasks"],
   ),
+  cmdclass={
+    "install": MyInstall
+  },
   install_requires=load_requirements(),
   entry_points={
     "console_scripts": [
@@ -85,4 +138,5 @@ setup(
   },
   zip_safe=True,
   python_requires='>=3.7',
+  include_package_data=True
 )

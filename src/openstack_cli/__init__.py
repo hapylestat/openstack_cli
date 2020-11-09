@@ -13,5 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
+
 __app_name__ = "openstack-cli"
-__app_version__ = "1.0"
+__app_version__ = os.getenv("APP_VERSION", "v0.0")[1:]

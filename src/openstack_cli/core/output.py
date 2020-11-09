@@ -269,7 +269,9 @@ class Console(object):
     return getpass(" ".join(args))
 
   @classmethod
-  def ask_confirmation(cls, t: str) -> bool:
+  def ask_confirmation(cls, t: str, force: bool = False) -> bool:
+    if force:
+      return True
     r: str = input(f"{t} (Y/N): ")
     return r.lower() == "y"
 

@@ -1,9 +1,9 @@
 name: Python package
 
 on:
-  push:
-    branches:
-      - stable
+  create:
+    tags:
+      - v*
 
 jobs:
   build:

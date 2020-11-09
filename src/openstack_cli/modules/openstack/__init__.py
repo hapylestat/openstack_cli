@@ -27,15 +27,14 @@ from typing import Dict, List, Callable, Iterable, TypeVar
 
 from openstack_cli.core.colors import Colors
 from openstack_cli.modules.config import Configuration
-from openstack_cli.modules.curl import curl, CurlRequestType
-from openstack_cli.modules.openstack.api_objects import LoginResponse, ComputeLimits, VolumeV3Limits, DiskImages, \
+from openstack_cli.modules.curl import curl, CurlRequestType, CURLResponse
+from openstack_cli.modules.openstack.api_objects import ComputeLimits, VolumeV3Limits, DiskImages, \
   DiskImageInfo, ComputeServers, NetworkLimits, ComputeFlavors, ComputeFlavorItem, Networks, NetworkItem, Subnets, \
   VMCreateResponse, ComputeServerInfo, ComputeServerActions, ComputeServerActionRebootType, VMKeypairItem, \
-  VMKeypairItemValue, VMKeypairs
+  VMKeypairItemValue, VMKeypairs, LoginResponse, Token, APIProjects
 from openstack_cli.modules.openstack.objects import OpenStackEndpoints, EndpointTypes, OpenStackQuotas, ImageStatus, \
   OpenStackUsers, OpenStackVM, OpenStackVMInfo, OSImageInfo, OSFlavor, OSNetwork, VMCreateBuilder, ServerPowerState, \
-  ServerState
-
+  ServerState, AuthRequestBuilder, AuthRequestType
 
 T = TypeVar('T')
 
@@ -63,7 +62,7 @@ class OpenStack(object):
 
   def __init__(self, conf: Configuration, debug: bool = False):
     self.__last_errors: List[str] = []
-    self.__login_api = conf.os_address
+    self.__login_api = f"{conf.os_address}/v3"
     self._conf = conf
     self.__endpoints__: OpenStackEndpoints or None = None
     self.__cache_images: Dict[str, DiskImageInfo] = {}
@@ -77,15 +76,6 @@ class OpenStack(object):
     self.__os_image_pattern = re.compile(pattern_str, re.IGNORECASE)
 
     self.__is_auth: bool = False
-    if conf.auth_token and self.__check_token():
-      self.__is_auth = True
-    else:
-      self.__is_auth = self.__auth()
-
-    if self.__is_auth:
-      self.__init_after_auth__()
-    else:
-      self.__last_errors.append("Login failed, some exception happen")
 
   def __invalidate_local_cache(self, cache_type: LocalCacheType):
     if cache_type == LocalCacheType.SERVERS:
@@ -132,21 +122,18 @@ class OpenStack(object):
       "X-Auth-Token": self._conf.auth_token,
       "X-Subject-Token": self._conf.auth_token
     }
-    _t_start = 0
-    if self.__debug:
-      _t_start = time.time_ns()
-    try:
-      r = curl(f"{self.__login_api}/v3/auth/tokens", req_type=CurlRequestType.GET, headers=headers)
-    except TimeoutError:
+
+    r = self.__request_simple(
+      EndpointTypes.identity,
+      "/auth/tokens",
+      req_type=CurlRequestType.GET,
+      headers=headers
+    )
+
+    if not r:
       from openstack_cli.core.output import Console
       Console.print_error("Auth timeout error")
       return False
-
-    if self.__debug:
-      from openstack_cli.core.output import Console
-      _t_delta = time.time_ns() - _t_start
-      _t_sec = _t_delta / 1000000000
-      Console.print_debug(f"[{_t_sec:.2f}s][GET][auth] /auth/tokens; ")
 
     if r.code not in [200, 201]:
       return False
@@ -155,39 +142,28 @@ class OpenStack(object):
     self.__endpoints__ = OpenStackEndpoints(self._conf, l_resp)
     return True
 
-  def __auth(self) -> bool:
-    data = {
-      "auth": {
-        "identity": {
-          "methods": ["password"],
-          "password": {
-            "user": {
-              "name": self._conf.os_login,
-              "domain": {
-                "id": "default"
-              },
-              "password": self._conf.os_password
-            }
-          }
-        }
-      }
-    }
-    _t_start = 0
-    if self.__debug:
-      _t_start = time.time_ns()
+  def __auth(self, _type: AuthRequestType = AuthRequestType.SCOPED) -> bool:
+    if self._conf.auth_token and self.__check_token():
+      return True
 
-    try:
-      r = curl(f"{self.__login_api}/v3/auth/tokens", req_type=CurlRequestType.POST, data=data)
-    except TimeoutError:
+    if _type == AuthRequestType.UNSCOPED:
+      data = AuthRequestBuilder.unscoped_login(self._conf.os_login, self._conf.os_password)
+    elif _type == AuthRequestType.SCOPED and self._conf.project.id:
+      data = AuthRequestBuilder.scoped_login(self._conf.os_login, self._conf.os_password, self._conf.project)
+    else:
+      data = AuthRequestBuilder.normal_login(self._conf.os_login, self._conf.os_password)
+
+    r = self.__request_simple(
+      EndpointTypes.identity,
+      "/auth/tokens",
+      req_type=CurlRequestType.POST,
+      data=data
+    )
+
+    if not r:
       from openstack_cli.core.output import Console
-      Console.print_error("Auth timeout error")
+      Console.print_error("Auth timeout error: " + r.raw)
       return False
-
-    if self.__debug:
-      from openstack_cli.core.output import Console
-      _t_delta = time.time_ns() - _t_start
-      _t_sec = _t_delta / 1000000000
-      Console.print_debug(f"[{_t_sec:.2f}s][POST][auth] /auth/tokens; ")
 
     if r.code not in [200, 201]:
       return False
@@ -196,6 +172,9 @@ class OpenStack(object):
     self._conf.auth_token = auth_token
 
     l_resp = LoginResponse(serialized_obj=r.from_json())
+    if _type == AuthRequestType.UNSCOPED:
+      l_resp.token = Token(catalog=[])
+
     self.__endpoints__ = OpenStackEndpoints(self._conf, l_resp)
 
     return True
@@ -222,12 +201,70 @@ class OpenStack(object):
   def endpoints(self):
     return self.__endpoints
 
+  def logout(self):
+    self._conf.auth_token = ""
+
+  def login(self, _type: AuthRequestType = AuthRequestType.SCOPED) -> bool:
+    if self.__auth(_type):
+      self.__is_auth = True
+      if _type != AuthRequestType.UNSCOPED:
+        self.__init_after_auth__()
+      return True
+    else:
+      self.__last_errors.append("Login failed, some exception happen")
+      return False
+
   def __get_origin_frame(self, base_f_name: str) -> List[FrameInfo]:
     import inspect
     _frames = inspect.stack()
     for i in range(0, len(_frames)):
       if _frames[i].function == base_f_name:
         return [_frames[i+3], _frames[i+2], _frames[i+1]]
+
+  def __request_simple(self,
+                       endpoint: EndpointTypes,
+                       relative_uri: str,
+                       params: Dict[str, str] = None,
+                       headers: Dict[str, str] = None,
+                       req_type: CurlRequestType = CurlRequestType.GET,
+                       data: str or dict = None
+                       ) -> CURLResponse or None:
+
+    if endpoint == EndpointTypes.identity:
+      _endpoint: str = f"{self.__login_api}"
+    else:
+      _endpoint: str = self.__endpoints.get_endpoint(endpoint)
+
+    url = f"{_endpoint}{relative_uri}"
+
+    _t_start = 0
+    if self.__debug:
+      _t_start = time.time_ns()
+
+    r = None
+    try:
+      return curl(url, req_type=req_type, params=params, headers=headers, data=data)
+    except TimeoutError:
+      self.__last_errors.append("Timeout exception on API request")
+      return None
+    finally:
+      if self.__debug:
+        from openstack_cli.core.output import Console
+        _t_delta = time.time_ns() - _t_start
+        _t_sec = _t_delta / 1000000000
+        _params = ",".join([f"{k}={v}" for k, v in params.items()]) if params else "None"
+        _f_caller = self.__get_origin_frame(self.__request_simple.__name__)
+
+        _chunks = [
+          f"[{_t_sec:.2f}s]",
+          f"[{req_type.value}]",
+          f"[{endpoint.value}]",
+          f" {relative_uri}; ",
+          Colors.RESET,
+          f"{Colors.BRIGHT_BLACK}{os.path.basename(_f_caller[0].filename)}{Colors.RESET}: ",
+          f"{Colors.BRIGHT_BLACK}->{Colors.RESET}".join([f"{f.function}:{f.lineno}" for f in _f_caller])
+        ]
+        Console.print_debug("".join(_chunks))
 
   def __request(self,
                 endpoint: EndpointTypes,
@@ -239,11 +276,16 @@ class OpenStack(object):
                 data: str or dict = None
                 ) -> str or dict or None:
 
+    if not self.__is_auth and not self.login():
+      raise RuntimeError("Not Authorised")
+
+    _endpoint = self.__login_api if endpoint == EndpointTypes.identity else self.__endpoints.get_endpoint(endpoint)
+
     _t_start = 0
     if self.__debug:
       _t_start = time.time_ns()
 
-    url = f"{self.__endpoints.get_endpoint(endpoint)}{relative_uri}"
+    url = f"{_endpoint}{relative_uri}"
     headers = {
       "X-Auth-Token": self._conf.auth_token
     }
@@ -254,24 +296,24 @@ class OpenStack(object):
     except TimeoutError:
       self.__last_errors.append("Timeout exception on API request")
       return
+    finally:
+      if self.__debug:
+        from openstack_cli.core.output import Console
+        _t_delta = time.time_ns() - _t_start
+        _t_sec = _t_delta / 1000000000
+        _params = ",".join([f"{k}={v}" for k, v in params.items()]) if params else "None"
+        _f_caller = self.__get_origin_frame(self.__request.__name__)
 
-    if self.__debug:
-      from openstack_cli.core.output import Console
-      _t_delta = time.time_ns() - _t_start
-      _t_sec = _t_delta / 1000000000
-      _params = ",".join([f"{k}={v}" for k, v in params.items()]) if params else "None"
-      _f_caller = self.__get_origin_frame(self.__request.__name__)
-
-      _chunks = [
-        f"[{_t_sec:.2f}s]",
-        f"[{req_type.value}]",
-        f"[{endpoint.value}]",
-        f" {relative_uri}; ",
-        Colors.RESET,
-        f"{Colors.BRIGHT_BLACK}{os.path.basename(_f_caller[0].filename)}{Colors.RESET}: ",
-        f"{Colors.BRIGHT_BLACK}->{Colors.RESET}".join([f"{f.function}:{f.lineno}" for f in _f_caller])
-      ]
-      Console.print_debug("".join(_chunks))
+        _chunks = [
+          f"[{_t_sec:.2f}s]",
+          f"[{req_type.value}]",
+          f"[{endpoint.value}]",
+          f" {relative_uri}; ",
+          Colors.RESET,
+          f"{Colors.BRIGHT_BLACK}{os.path.basename(_f_caller[0].filename)}{Colors.RESET}: ",
+          f"{Colors.BRIGHT_BLACK}->{Colors.RESET}".join([f"{f.function}:{f.lineno}" for f in _f_caller])
+        ]
+        Console.print_debug("".join(_chunks))
 
     if r.code not in [200, 201, 202, 204]:
       # if not data:
@@ -297,6 +339,17 @@ class OpenStack(object):
       content[page_collection_name].extend(next_page[page_collection_name])
 
     return content
+
+  @property
+  def projects(self):
+    d = self.__request(
+      EndpointTypes.identity,
+      "/auth/projects",
+      is_json=True,
+      req_type=CurlRequestType.GET,
+    )
+    return APIProjects(serialized_obj=d).projects
+
 
   @property
   def users(self) -> OpenStackUsers:

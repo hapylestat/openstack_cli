@@ -124,7 +124,7 @@ def _keys_list(conf: Configuration, ostack: OpenStack, show_row_nums: bool = Fal
   return conf_keys
 
 
-def _keys_del(conf: Configuration, ostack: OpenStack, name: str):
+def _keys_del(conf: Configuration, ostack: OpenStack, name: str, force: bool = False):
   if not name:
     _keys = _keys_list(conf, ostack, True)
     item = Console.ask("Select key to remove", _type=int)
@@ -133,7 +133,7 @@ def _keys_del(conf: Configuration, ostack: OpenStack, name: str):
       return
     name = _keys[item].name
 
-  if Console.ask_confirmation(f"Confirm removing key '{name}'"):
+  if Console.ask_confirmation(f"Confirm removing key '{name}'", force=force):
     ostack.delete_keypair(name)
     if ostack.has_errors:
       so = StatusOutput()

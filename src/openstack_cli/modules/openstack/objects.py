@@ -23,10 +23,9 @@ from time import strptime
 from typing import List, Dict, Tuple
 
 from openstack_cli.modules.json2obj import SerializableObject
-from openstack_cli.modules.openstack import LoginResponse
 from openstack_cli.modules.openstack.api_objects import EndpointCatalog, ComputeServerInfo, DiskImageInfo, \
   ComputeFlavorItem, NetworkItem, SubnetItem, VMCreateServer, VMCreateNetworksItem, VMCreateNewFileItem, \
-  VMCreateServerItem
+  VMCreateServerItem, LoginResponse
 
 
 class EndpointTypes(Enum):
@@ -125,8 +124,8 @@ class OpenStackEndpoints(object):
     self.__interface = conf.interface
     self.__region = conf.region
     self.__endpoint_cache = {}
-    self.__project_name = login_response.token.project.name
-    self.__project_id = login_response.token.project.id
+    self.__project_name = conf.project.name if login_response.token.project is None else login_response.token.project.name
+    self.__project_id = conf.project.id if login_response.token.project is None else login_response.token.project.id
 
   def get_endpoint(self, endpoint_type: EndpointTypes) -> str or None:
     if endpoint_type in self.__endpoint_cache:
@@ -619,3 +618,79 @@ class OpenStackVM(object):
                f" image: {vm.image.name}, ip: {vm.ip_address}, owner: {owner}, status: {vm.status}")
 
     return "\n".join(s)
+
+
+class VMProject(SerializableObject):
+  id: str = ""
+  name: str = ""
+  domain: str = ""
+
+
+class AuthRequestType(Enum):
+  SCOPED = 0
+  UNSCOPED = 1
+
+
+class AuthRequestBuilder(object):
+  @classmethod
+  def normal_login(cls, user: str, password: str) -> dict:
+    return {
+      "auth": {
+        "identity": {
+          "methods": ["password"],
+          "password": {
+            "user": {
+              "name": user,
+              "domain": {
+                "id": "default"
+              },
+              "password": password
+            }
+          }
+        }
+      }
+    }
+
+  @classmethod
+  def unscoped_login(cls, user: str, password: str) -> dict:
+    return {
+      "auth": {
+        "identity": {
+          "methods": ["password"],
+          "password": {
+            "user": {
+              "name": user,
+              "domain": {
+                "id": "default"
+              },
+              "password": password
+            }
+          }
+        },
+        "scope": "unscoped"
+      }
+    }
+
+  @classmethod
+  def scoped_login(cls, user: str, password: str, project: VMProject) -> dict:
+    return {
+      "auth": {
+        "identity": {
+          "methods": ["password"],
+          "password": {
+            "user": {
+              "name": user,
+              "domain": {
+                "id": project.domain
+              },
+              "password": password
+            }
+          }
+        },
+        "scope": {
+          "project": {
+            "id": project.id
+          }
+        }
+      }
+    }

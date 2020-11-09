@@ -541,6 +541,7 @@ class VMKeyPairItemBuilder(object):
   def build(self):
     return self.__key
 
+
 class VMKeypairItem(SerializableObject):
   keypair: VMKeypairItemValue = None
 
@@ -549,3 +550,19 @@ class VMKeypairs(SerializableObject):
   keypairs: List[VMKeypairItem] = []
   keypairs_links: List[Links] = []
 
+
+class APIProjectItem(SerializableObject):
+  is_domain: bool = False
+  description: str = ""
+  links: dict = {}
+  tags: List[str] = []
+  enabled: bool = False
+  id: str = ""
+  parent_id: str = ""
+  domain_id: str = ""
+  name: str = ""
+
+
+class APIProjects(SerializableObject):
+  projects: List[APIProjectItem] = []
+  links: dict = {}

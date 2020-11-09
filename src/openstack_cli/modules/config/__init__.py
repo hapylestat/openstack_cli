@@ -20,6 +20,7 @@ from getpass import getpass
 from typing import List, ClassVar
 
 from openstack_cli.modules.config.storage import SQLStorage, StorageProperty, StoragePropertyType
+from openstack_cli.modules.openstack.objects import VMProject, AuthRequestType
 
 
 class Configuration(object):
@@ -164,6 +165,18 @@ class Configuration(object):
     return [VMKeypairItemValue(serialized_obj=k.value) for k in items if k.value]
 
   @property
+  def project(self) -> VMProject:
+    p = self.__storage.get_property(self.__options_table, "project_data").value
+    if p:
+      return VMProject(serialized_obj=p)
+
+    return VMProject()
+
+  @project.setter
+  def project(self, value: VMProject):
+    self.__storage.set_text_property(self.__options_table, "project_data", value.serialize(), encrypted=True)
+
+  @property
   def default_network(self):
     """
     To get default network please use networks#get_default_network
@@ -264,8 +277,12 @@ class Configuration(object):
     Please answer several questions below to personalize your experience:
 
     """)
+    from openstack_cli.modules.openstack import OpenStack
+    from openstack_cli.commands.networks import print_networks
+    from openstack_cli.commands.conf import _keys_del, _keys_create
+    from openstack_cli.core.output import TableOutput, TableColumn, Console
 
-    use_master_password: bool = self.__ask_question("Secure configuration with master password (y/n): ")
+    use_master_password: bool = False  # self.__ask_question("Secure configuration with master password (y/n): ")
     if use_master_password:
       store_encryption_key: bool = self.__ask_question("Cache encryption key on disk (y/n): ")
     else:  # if not master key is used, default one would be generated anyway
@@ -277,24 +294,46 @@ class Configuration(object):
     self.__credentials_cached = store_encryption_key
     self.__use_master_password = use_master_password
 
-    from openstack_cli.modules.openstack import OpenStack
-
     self.os_address = self.__ask_text_question("OpenStack identity api address: ")
     self.os_login = self.__ask_text_question("OpenStack username: ")
     self.os_password = self.__ask_text_question("OpenStack password: ", encrypted=True)
 
-    print("Trying connect to the API...")
+    print("Fetching available projects....")
     osvm = OpenStack(self)
-    if osvm.has_errors:
-      from openstack_cli.core.output import StatusOutput
-      so = StatusOutput()
-      so.check_issues(osvm.last_errors)
-      self.reset()
+    if not osvm.login(_type=AuthRequestType.UNSCOPED):
+      if osvm.has_errors:
+        from openstack_cli.core.output import StatusOutput
+        so = StatusOutput()
+        so.check_issues(osvm.last_errors)
+        self.reset()
+      raise RuntimeError("Unable to continue")
+
+    projects = osvm.projects
+    to = TableOutput(
+      TableColumn("Id", 33),
+      TableColumn("Name", 20),
+      TableColumn("Enabled", 6),
+      print_row_number=True
+    )
+
+    to.print_header()
+    for prj in projects:
+      to.print_row(prj.id, prj.name, prj.enabled)
+
+    n: int = Console.ask("Select the project number to be used: ", _type=int)
+    self.project = VMProject(id=projects[n].id, name=projects[n].name, domain=projects[n].domain_id)
+    osvm.logout()
+
+    print(f"Checking login for the project '{self.project.name}'...")
+    if not osvm.login():
+      if osvm.has_errors:
+        from openstack_cli.core.output import StatusOutput
+        so = StatusOutput()
+        so.check_issues(osvm.last_errors)
+        self.reset()
       raise RuntimeError("Unable to continue")
 
     self.__test_encrypted_property = "test"
-
-    from openstack_cli.commands.networks import print_networks
 
     print("Please select default network for the VM (could be changed via 'conf network' command):")
     _net = print_networks(ostack=osvm, select=True)
@@ -307,12 +346,11 @@ class Configuration(object):
       _p = "qwerty"
     self.default_vm_password = _p
 
-    from openstack_cli.commands.conf import _keys_create
     _default_keypair_name = "default"
     _existing_key = osvm.get_keypair(_default_keypair_name)
     if _existing_key:
       print(f"Keypair with name '{_default_keypair_name}' already exist, need to be removed")
-      osvm.delete_keypair(_default_keypair_name)
+      _keys_del(self, osvm, _default_keypair_name, True)
 
     _keys_create(self, osvm, _default_keypair_name)
     print(f"Key '{_default_keypair_name}' could be exported using command 'conf keys export {_default_keypair_name}'")
