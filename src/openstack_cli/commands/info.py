@@ -30,25 +30,10 @@ __args__ = __module__.get_arguments_builder() \
 from openstack_cli.modules.openstack.objects import ServerPowerState
 
 
-def get_lifetime(timestamp: datetime):
-  now = datetime.utcnow()
-  d = now - timestamp
-  if 5 < d.days < 31:
-    days = Colors.YELLOW.wrap(d.days)
-  elif d.days > 31:
-    days = Colors.RED.wrap(d.days)
-  else:
-    days = d.days
-  hours = int(d.seconds / 3600)
-  minutes = (d.seconds / 60) - (hours * 60)
-
-  return f"{int(hours)}h {int(minutes)}m" if days == 0 else f"{days} day(s)"
-
-
 def __init__(conf: Configuration, search_pattern: str, debug: bool):
-  __run_ico = Symbols.PLAY.color(Colors.GREEN)
-  __pause_ico = Symbols.PAUSE.color(Colors.YELLOW)
-  __stop_ico = Symbols.STOP.color(Colors.RED)
+  __run_ico = Symbols.PLAY.green()
+  __pause_ico = Symbols.PAUSE.yellow()
+  __stop_ico = Symbols.STOP.red()
   __state = {
     ServerPowerState.running: __run_ico,
     ServerPowerState.paused: __pause_ico
@@ -56,25 +41,24 @@ def __init__(conf: Configuration, search_pattern: str, debug: bool):
 
   ostack = OpenStack(conf, debug=debug)
   clusters = ostack.get_server_by_cluster(search_pattern=search_pattern, sort=True)
-  max_host_len = ostack.servers.max_host_len + 5
   max_fqdn_len = ostack.servers.max_host_len + ostack.servers.max_domain_len + 5
 
   to = TableOutput(
-    TableColumn("", 2, inv_ch=Colors.GREEN.wrap_len()),
-    TableColumn("Cluster name", max_host_len),
+    TableColumn("", 1, inv_ch=Colors.GREEN.wrap_len()),
     TableColumn("Host name", max_fqdn_len),
     TableColumn("Host IP", 16),
-    TableColumn("Uptime", 10, inv_ch=Colors.GREEN.wrap_len())
+    TableColumn("SSH Key", 30),
+    TableColumn("Network name", length=15)
   )
 
   to.print_header()
   for cluster_name, servers in clusters.items():
+    servers = sorted(servers, key=lambda x: x.fqdn)
     for server in servers:
-      lifetime = get_lifetime(server.created)
       to.print_row(
         __state[server.state] if server.state in __state else __stop_ico,
-        server.cluster_name,
         server.fqdn,
         server.ip_address if server.ip_address else "0.0.0.0",
-        lifetime
+        server.key_name,
+        server.net_name
       )

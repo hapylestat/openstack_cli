@@ -16,7 +16,7 @@
 from datetime import datetime
 from typing import List, Dict
 
-from openstack_cli.core.output import TableOutput, TableColumn
+from openstack_cli.core.output import TableOutput, TableColumn, TableColumnPosition
 
 from openstack_cli.core.colors import Colors, Symbols
 from openstack_cli.modules.config import Configuration
@@ -51,11 +51,11 @@ def print_cluster(servers: Dict[str, List[OpenStackVMInfo]]):
   __stop_ico = Symbols.STOP.color(Colors.RED)
 
   to = TableOutput(
-    TableColumn("Cluster", length=40),
-    TableColumn("VmType", length=20),
-    TableColumn("Status", length=20, inv_ch=len(Colors.GREEN)*3+len(Colors.RESET)*3),
-    TableColumn("Network name", length=15),
-    TableColumn("Lifetime", length=10)
+    TableColumn("Cluster Name", 40),
+    TableColumn("", 5),
+    TableColumn("Nodes state", 20, inv_ch=Colors.GREEN.wrap_len() * 3),
+    TableColumn("VmType", 20),
+    TableColumn("Lifetime", 10)
   )
 
   to.print_header()
@@ -68,9 +68,9 @@ def print_cluster(servers: Dict[str, List[OpenStackVMInfo]]):
 
     to.print_row(
       cluster_name,
+      f"{len(_servers):>3}{Symbols.PC}:",
+      f"{__run_ico}{num_running:<3} {__pause_ico}{num_paused:<3} {__stop_ico}{num_stopped:<3}",
       server.flavor.name,
-      f"{__run_ico}{num_running:<3}{__pause_ico}{num_paused:<3}{__stop_ico}{num_stopped:<3}",
-      server.net_name,
       get_lifetime(server.created)
     )
 

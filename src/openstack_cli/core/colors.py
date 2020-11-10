@@ -33,7 +33,7 @@ class Symbols(Enum):
   CHECK = "✔"
   CROSS = "❌"
   KEY = "🔑"
-  PLAY = "►"
+  PLAY = "▶"
   PAUSE = "❚❚"
   STOP = "■"
   PC = "🖥"
