@@ -28,8 +28,13 @@ def main_entry():
     # currently hack to avoid key generating on reset command
     if commands.discovery.command_name == "conf" and commands.discovery.command_arguments[:1] == "reset":
       pass
+    elif commands.discovery.command_name == "version":
+      pass
     else:
       conf.initialize()
+      if conf.check_for_update:
+        from openstack_cli.commands.version import print_little_banner
+        print_little_banner()
 
     commands.discovery.start_application(kwargs={
       "conf": conf,

@@ -230,6 +230,17 @@ class Configuration(object):
     _pass = self.__storage.get_property(self.__options_table, "default_vm_password").value
     return _pass if _pass else "qwerty"
 
+  @property
+  def check_for_update(self) -> bool:
+    class UpdateClass(object):
+      pass
+
+    if not self.get_cache(UpdateClass):
+      self.set_cache(UpdateClass, "Aha-ha, here we are!")
+      return True
+
+    return False
+
   @default_vm_password.setter
   def default_vm_password(self, value: str):
     self.__storage.set_text_property(self.__options_table, "default_vm_password", value, True)

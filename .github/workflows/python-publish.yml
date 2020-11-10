@@ -32,15 +32,17 @@ jobs:
           python -m pip install -r requirements.txt
           pip install setuptools wheel twine
 
-      - name: Build wheel for the python ${{ matrix.python-version }}
+      - name: Build wheel
+        env:
+          API_URL: https://api.github.com/repos/hapylestat/openstack_cli/releases
         run: |
-          python setup.py sdist bdist_wheel --dist-dir=dist/${{ matrix.python-version }}
+          python setup.py sdist bdist_wheel --update-link="${API_URL}"
 
-      - name: Upload wheel for python ${{ matrix.python-version }}
+      - name: Upload wheel
         uses: actions/upload-artifact@v2
         with:
-          name: openstack_cli_${{ matrix.python-version }}
-          path: dist/${{ matrix.python-version }}/*.whl
+          name: openstack_cli
+          path: dist/*.whl
         # Use always() to always run this step to publish test results when there are test failures
         if: ${{ always() }}
 
@@ -49,4 +51,4 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           release-tag: latest
-          files: dist/${{ matrix.python-version }}/*.whl
+          files: dist/*.whl

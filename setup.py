@@ -17,11 +17,24 @@
 
 import codecs
 import os
+import sys
 import re
 from typing import List
 
 from distutils.command.install import install
 from setuptools import find_packages, setup
+from wheel.bdist_wheel import bdist_wheel
+
+"""
+HOW TO BUILD PROJECT
+=====================
+From the project root:
+  python3 setup.py bdist_wheel [--version=vX.X] [--update-link=link to GitHub API Releases landing]
+
+  Example of update-link: https://api.github.com/repos/hapylestat/openstack_cli/releases
+
+  The output wheel would be available in dist folder
+"""
 
 here = os.path.abspath(os.path.dirname(__file__))
 
@@ -85,28 +98,62 @@ def get_git_hash() -> str:
   return f.strip()
 
 
-app_name, app_version = find_tag(["app_name", "app_version"], "src", "openstack_cli", "__init__.py", use_import=True)
+app_name, app_version, prop_file = find_tag(
+  ["app_name", "app_version", "properties_file"],
+  "src", "openstack_cli", "__init__.py",
+  use_import=True
+)
 git_hash = get_git_hash()
+update_link = ""
+
+for arg in sys.argv:
+  if "--version" in arg:
+    _, _, app_version = arg.partition("=")
+    break
+
+
+class MyWheel(bdist_wheel):
+  user_options = install.user_options + [
+    ('update-link=', None, "Specify path to releases GITHUB API"),
+    ('version=', None, "Application version in format 'vX.X'")
+  ]
+
+  def initialize_options(self) -> None:
+    bdist_wheel.initialize_options(self)
+    self.update_link = None
+    self.version = None
+
+  def finalize_options(self) -> None:
+    bdist_wheel.finalize_options(self)
+
+  def run(self):
+    global update_link, app_version
+    if self.update_link is not None:
+      update_link = self.update_link
+
+    if self.version is not None:
+      app_version = self.version
+    bdist_wheel.run(self)
 
 
 class MyInstall(install):
+
   def run(self):
     install.run(self)
     if "install_data" in self.__dict__:
-      os.makedirs(self.install_data, exist_ok=True)
-      with open(os.path.join(self.install_data, "conf.json"), "w+") as f:
-        import json
+      import json
+      out_dir, _, _ = self.install_data.rpartition("-")
+      os.makedirs(out_dir, exist_ok=True)
+      with open(os.path.join(out_dir, prop_file), "w+") as f:
         data = {
           "app_name": app_name,
           "app_version": app_version,
-          "commit_hash": git_hash
+          "commit_hash": git_hash,
+          "update_src": update_link
         }
         json.dump(data, f)
-
     else:
       raise RuntimeError("Unable to locate data directory")
-
-
 
 
 setup(
@@ -128,7 +175,8 @@ setup(
     exclude=["contrib", "docs", "tests*", "tasks"],
   ),
   cmdclass={
-    "install": MyInstall
+    "install": MyInstall,
+    "bdist_wheel": MyWheel
   },
   install_requires=load_requirements(),
   entry_points={
@@ -137,6 +185,5 @@ setup(
       ],
   },
   zip_safe=True,
-  python_requires='>=3.7',
-  include_package_data=True
+  python_requires='>=3.7'
 )

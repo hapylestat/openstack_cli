@@ -29,7 +29,7 @@ from typing import List, Optional, get_type_hints, get_args
 
 class SerializableObject(object):
   """
-   BaseConfigView is a basic class, which providing Object to Dict, Dict to Object conversion with
+   SerializableObject is a basic class, which providing Object to Dict, Dict to Object conversion with
    basic fields validation.
 
    Should be subclassed for proper usage. For example we have such dictionary:
@@ -42,7 +42,8 @@ class SerializableObject(object):
    and we want to convert this to the object with populated object fields by key:value pairs from dict.
    For that we need to declare object view and describe there expected fields:
 
-   class PersonView(BaseConfigView):
+   class PersonView(SerializableObject):
+     __strict__ = True  # regulate, if de-serialization will fail on unknown field
      name = None
      age = None
 
@@ -52,13 +53,13 @@ class SerializableObject(object):
     person = PersonView(serialized_obj=my_dict)
 
 
-
     As second way to initialize view, view fields could be directly passed as constructor arguments:
 
-    person = PersonView(name=
+    person = PersonView(name=name, age=16)
 
 
   """
+  __strict__ = True
 
   def __init__(self, serialized_obj: str or dict or object or None = None, **kwargs):
     if len(kwargs) > 0:
@@ -175,7 +176,7 @@ class SerializableObject(object):
             v = attr_type_arg()
           self.__setattr__(k, v)
 
-      if errors:
+      if errors and self.__strict__:
         raise ValueError("A number of errors happen:  \n" + "\n".join(errors))
 
   def serialize(self) -> dict:

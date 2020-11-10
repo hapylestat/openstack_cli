@@ -17,3 +17,5 @@ import os
 
 __app_name__ = "openstack-cli"
 __app_version__ = os.getenv("APP_VERSION", "v0.0")[1:]
+__my_root_dir__ = os.path.dirname(__file__)
+__properties_file__ = "conf.json"
