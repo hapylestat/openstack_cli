@@ -22,7 +22,7 @@ from typing import Callable, List, Dict, TypeVar
 import sys
 from enum import Enum
 
-from openstack_cli.core.colors import Colors
+from openstack_cli.core.colors import Colors, Symbols
 from openstack_cli.modules.openstack import OpenStackVMInfo, JSONValueError
 from openstack_cli.modules.openstack.api_objects import ApiErrorResponse
 from openstack_cli.modules.progressbar import ProgressBar, ProgressBarOptions, CharacterStyles, get_terminal_size
@@ -213,7 +213,7 @@ class StatusOutput(object):
     total_tasks: int = len(objects)
     failed_tasks: int = 0
     ok_tasks: int = 0
-    status_pattern: str = f"{{:3d}} {Colors.GREEN}✓{Colors.RESET} | {{:3d}} {Colors.RED}❌{Colors.RESET}"
+    status_pattern: str = f"{{:3d}} {Symbols.CHECK.green()} | {{:3d}} {Symbols.CROSS.red()}"
 
     with ThreadPoolExecutor(max_workers=self.__pool_size) as e:
       futures: List[Future] = [e.submit(self.__callable, obj) for obj in objects]
@@ -290,7 +290,7 @@ class Console(object):
 
     for cl_name, servers in servers.items():
       print(
-        f"{Colors.BRIGHT_YELLOW}{cl_name:{max_cluster_name}}{Colors.RESET} {{🖥{len(servers)}; @{servers[0].domain}}}"
+        f"{Colors.BRIGHT_YELLOW}{cl_name:{max_cluster_name}}{Colors.RESET} {{{Symbols.PC.yellow()}{len(servers)}; @{servers[0].domain}}}"
       )
     print()
 

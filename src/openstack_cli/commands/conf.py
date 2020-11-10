@@ -16,7 +16,7 @@
 import os
 from typing import Dict, List
 
-from openstack_cli.core.colors import Colors
+from openstack_cli.core.colors import Colors, Symbols
 from openstack_cli.core.output import Console, TableOutput, TableColumn, TableColumnPosition, StatusOutput
 from openstack_cli.modules.config import Configuration
 from openstack_cli.modules.discovery import CommandMetaInfo, CommandArgumentException
@@ -31,9 +31,9 @@ __args__ = __module__.get_arguments_builder()\
   .add_default_argument("arg", str, "sub command argument", default="")
 
 
-CHECK_ICON = f"{Colors.GREEN}🗸{Colors.RESET}"
-UNCHECK_ICON = f"{Colors.RED}❌{Colors.RESET}"
-KEY_ICON = f"{Colors.BRIGHT_YELLOW}🔑{Colors.RESET}"
+CHECK_ICON = Symbols.CHECK.color(Colors.GREEN)
+UNCHECK_ICON = Symbols.CROSS.color(Colors.RED)
+KEY_ICON = Symbols.KEY.color(Colors.BRIGHT_YELLOW)
 
 
 def configure_network(conf: Configuration):

@@ -17,7 +17,7 @@ from datetime import datetime
 
 from openstack_cli.core.output import TableOutput, TableColumn
 
-from openstack_cli.core.colors import Colors
+from openstack_cli.core.colors import Colors, Symbols
 from openstack_cli.modules.config import Configuration
 from openstack_cli.modules.discovery import CommandMetaInfo
 from openstack_cli.modules.openstack import OpenStack
@@ -34,9 +34,9 @@ def get_lifetime(timestamp: datetime):
   now = datetime.utcnow()
   d = now - timestamp
   if 5 < d.days < 31:
-    days = f"{Colors.YELLOW}{d.days}{Colors.RESET}"
+    days = Colors.YELLOW.wrap(d.days)
   elif d.days > 31:
-    days = f"{Colors.RED}{d.days}{Colors.RESET}"
+    days = Colors.RED.wrap(d.days)
   else:
     days = d.days
   hours = int(d.seconds / 3600)
@@ -46,9 +46,9 @@ def get_lifetime(timestamp: datetime):
 
 
 def __init__(conf: Configuration, search_pattern: str, debug: bool):
-  __run_ico = f"{Colors.GREEN}► {Colors.RESET}"
-  __pause_ico = f"{Colors.YELLOW}❚❚ {Colors.RESET}"
-  __stop_ico = f"{Colors.RED}■ {Colors.RESET}"
+  __run_ico = Symbols.PLAY.color(Colors.GREEN)
+  __pause_ico = Symbols.PAUSE.color(Colors.YELLOW)
+  __stop_ico = Symbols.STOP.color(Colors.RED)
   __state = {
     ServerPowerState.running: __run_ico,
     ServerPowerState.paused: __pause_ico
@@ -60,11 +60,11 @@ def __init__(conf: Configuration, search_pattern: str, debug: bool):
   max_fqdn_len = ostack.servers.max_host_len + ostack.servers.max_domain_len + 5
 
   to = TableOutput(
-    TableColumn("", 2, inv_ch=len(Colors.GREEN) + len(Colors.RESET)),
+    TableColumn("", 2, inv_ch=Colors.GREEN.wrap_len()),
     TableColumn("Cluster name", max_host_len),
     TableColumn("Host name", max_fqdn_len),
     TableColumn("Host IP", 16),
-    TableColumn("Uptime", 10, inv_ch=len(Colors.GREEN) + len(Colors.RESET))
+    TableColumn("Uptime", 10, inv_ch=Colors.GREEN.wrap_len())
   )
 
   to.print_header()

@@ -20,6 +20,7 @@
 # =========================================================================
 
 import sys
+from enum import Enum
 
 if sys.platform == "win32":
   import ctypes
@@ -28,7 +29,41 @@ if sys.platform == "win32":
   kernel32.SetConsoleMode(kernel32.GetStdHandle(-11), 7)
 
 
-class Colors(object):
+class Symbols(Enum):
+  CHECK = "✔"
+  CROSS = "❌"
+  KEY = "🔑"
+  PLAY = "►"
+  PAUSE = "❚❚"
+  STOP = "■"
+  PC = "🖥"
+
+  def color(self, _color) -> str:
+    """
+    :type _color Colors
+    """
+    return f"{_color}{self.value}{Colors.RESET}"
+
+  def red(self) -> str:
+    return self.color(Colors.RED)
+
+  def green(self) -> str:
+    return self.color(Colors.GREEN)
+
+  def yellow(self) -> str:
+    return self.color(Colors.YELLOW)
+
+  def __str__(self):
+    return self.value
+
+  def __add__(self, other) -> str:
+    return f"{self.value}{other.value if isinstance(other, Symbols) else other}"
+
+  def __len__(self):
+    return len(self.value)
+
+
+class Colors(Enum):
   BLACK = "\033[30m"
   RED = "\033[31m"
   GREEN = "\033[32m"
@@ -49,3 +84,20 @@ class Colors(object):
 
   RESET = "\033[0m"
 
+  def len(self):
+    return len(self.value)
+
+  def wrap_len(self):
+    return len(self.value) + len(Colors.RESET)
+
+  def wrap(self, text) -> str:
+    return f"{self.value}{text}{Colors.RESET}"
+
+  def __str__(self):
+    return self.value
+
+  def __add__(self, other) -> str:
+    return f"{self.value}{other.value if isinstance(other, Colors) else other}"
+
+  def __len__(self):
+    return len(self.value)

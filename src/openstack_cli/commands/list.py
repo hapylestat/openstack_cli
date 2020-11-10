@@ -18,7 +18,7 @@ from typing import List, Dict
 
 from openstack_cli.core.output import TableOutput, TableColumn
 
-from openstack_cli.core.colors import Colors
+from openstack_cli.core.colors import Colors, Symbols
 from openstack_cli.modules.config import Configuration
 from openstack_cli.modules.discovery import CommandMetaInfo
 
@@ -34,9 +34,9 @@ def get_lifetime(timestamp: datetime):
   now = datetime.utcnow()
   d = now - timestamp
   if 5 < d.days < 31:
-    days = f"{Colors.YELLOW}{d.days}{Colors.RESET}"
+    days = Colors.YELLOW.wrap(d.days)
   elif d.days > 31:
-    days = f"{Colors.RED}{d.days}{Colors.RESET}"
+    days =  Colors.RED.wrap(d.days)
   else:
     days = d.days
   hours = d.seconds / 3600
@@ -46,9 +46,9 @@ def get_lifetime(timestamp: datetime):
 
 
 def print_cluster(servers: Dict[str, List[OpenStackVMInfo]]):
-  __run_ico = f"{Colors.GREEN}► {Colors.RESET}"
-  __pause_ico = f"{Colors.YELLOW}❚❚ {Colors.RESET}"
-  __stop_ico = f"{Colors.RED}■ {Colors.RESET}"
+  __run_ico = Symbols.PLAY.color(Colors.GREEN)
+  __pause_ico = Symbols.PAUSE.color(Colors.BRIGHT_YELLOW)
+  __stop_ico = Symbols.STOP.color(Colors.RED)
 
   to = TableOutput(
     TableColumn("Cluster", length=40),
