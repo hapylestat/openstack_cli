@@ -115,13 +115,13 @@ def print_banner(ver: ConfProperties):
 def get_asset(ver: ConfProperties) -> Tuple[GHRelease, GHAsset]:
   r = curl(ver.update_src)
   if r.code not in [200, 201]:
-    return None
+    return None, None
 
   releases = sorted([GHRelease(serialized_obj=i) for i in r.from_json()], key=lambda x: x.version, reverse=True)
   release = releases[0] if releases else None
 
   if not release or release.version <= ver.version:
-    return None
+    return None, None
 
   for _asset in release.assets:
     if ".whl" in _asset.name and _asset.state == "uploaded":
