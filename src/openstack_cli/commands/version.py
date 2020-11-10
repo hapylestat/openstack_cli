@@ -109,7 +109,7 @@ def get_current_version() -> ConfProperties:
 
 
 def print_banner(ver: ConfProperties):
-  print(f"{Colors.WHITE.wrap(ver.app_name)} {ver.app_version} ({Colors.BRIGHT_BLACK.wrap(ver.short_hash)})")
+  print(f"{Colors.WHITE.wrap(ver.app_name)} {ver.app_version}{Colors.BRIGHT_BLACK}-{ver.short_hash}{Colors.RESET}")
 
 
 def get_asset(ver: ConfProperties) -> Tuple[GHRelease, GHAsset]:
