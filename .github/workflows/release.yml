@@ -1,5 +1,9 @@
 name: Release Creation
 
+# WARNING !!!
+# Please set variable API_URL in your secrets at project settings. It making the build file universal
+#
+
 on:
   push:
     tags:
@@ -39,8 +43,8 @@ jobs:
 
       - name: Build wheel
         env:
-          API_URL: https://api.github.com/repos/hapylestat/openstack_cli/releases
           SOURCE_TAG: ${{ steps.branch_name.outputs.SOURCE_TAG }}
+          API_URL: ${{ secrets.API_URL }}
         run: |
           python setup.py bdist_wheel --update-link="${API_URL}" --version="${SOURCE_TAG}"
 
