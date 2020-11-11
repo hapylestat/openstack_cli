@@ -21,6 +21,7 @@ import sys
 import re
 from typing import List
 
+import setuptools
 from distutils.command.install import install
 from setuptools import find_packages, setup
 from wheel.bdist_wheel import bdist_wheel
@@ -88,6 +89,10 @@ def get_git_hash() -> str:
   if not os.path.exists(head_path):
     return "dev-build"
   f = read(head_path)
+
+  if ":" not in f:   # in case of tag, HEAD would contains de-attached tree with commit ID
+    return f.strip()
+
   _, _, ref_path = f.partition(":")
 
   ref_path = os.path.join(base_path, ref_path.strip())
