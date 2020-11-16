@@ -56,7 +56,7 @@ class JSONValueError(ValueError):
 
 class LocalCacheType(Enum):
   SERVERS = 0
-  KEYPAIR = 0
+  KEYPAIR = 1
 
 
 class OpenStack(object):
@@ -527,15 +527,15 @@ class OpenStack(object):
         yield img
 
   def get_servers(self, arguments: dict = None, invalidate_cache: bool = False) -> OpenStackVM or None:
+    if arguments is None:
+      arguments = {}
+
     if invalidate_cache:
       self.__invalidate_local_cache(LocalCacheType.SERVERS)
 
     __cached_value: OpenStackVM = self.__get_local_cache(LocalCacheType.SERVERS)
-    if __cached_value is None and arguments is None:
+    if __cached_value is not None and not arguments:
       return __cached_value
-
-    if arguments is None:
-      arguments = {}
 
     params = {
       "limit": "1000"
