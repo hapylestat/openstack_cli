@@ -13,14 +13,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
+import sys
 
+from io import StringIO
+from enum import Enum
 from concurrent.futures._base import Future, CancelledError
 from concurrent.futures.thread import ThreadPoolExecutor
+from contextlib import contextmanager, ContextDecorator
 from getpass import getpass
-from io import StringIO
-from typing import Callable, List, Dict, TypeVar
-import sys
-from enum import Enum
+from typing import Callable, List, Dict, TypeVar, Tuple, Iterator
 
 from openstack_cli.core.colors import Colors, Symbols
 from openstack_cli.modules.openstack import OpenStackVMInfo, JSONValueError
@@ -92,23 +94,58 @@ class TableSizeColumn(object):
 
 class TableOutput(object):
   def __init__(self, *columns: TableColumn, style: TableStyle = TableStyle.default, print_row_number: bool = False):
+    self.__line = "-"
+    self.__space = " "
     self.__print_row_number = print_row_number
     columns = [TableColumn(length=3)] + list(columns) if print_row_number else columns
 
     self.__columns = columns
-    self.__column_pattern = "  ".join([f"{{:{c.pos}{c.length}}}{c.sep}" for c in columns])
-    self.__column_inv_pattern = "  ".join([f"{{:{c.pos}{c.length + c.inv_ch}}}{c.sep}" for c in columns])
-    self.__sep_columns = [("-" if c.name else " ") * c.length for c in columns]
+
+    self.__column_pattern = []
+    self.__column_inv_pattern = []
+    self.__sep_columns = []
+    self.__sep_solid_columns = []
+    self.__column_titles = []
+    self.__table_width: int = 0
+
+    for c in columns:
+      self.__column_pattern.append(f"{{:{c.pos}{c.length}}}{c.sep}")
+      self.__column_inv_pattern.append(f"{{:{c.pos}{c.length + c.inv_ch}}}{c.sep}")
+      self.__sep_columns.append((self.__line if c.name else self.__space) * c.length)
+      self.__sep_solid_columns.append(self.__line * (c.length + len(c.sep)))
+      self.__column_titles.append(c.name)
+
+      self.__table_width += c.length + len(c.sep)
+
+    self.__column_pattern = "  ".join(self.__column_pattern)
+    self.__column_inv_pattern = "  ".join(self.__column_inv_pattern)
+
+    self.__column_solid_pattern = "--".join(["{}"] * len(columns))
     self.__style = style
     self.__prev_color = Colors.BRIGHT_BLACK
     self.__current_row = 0
 
-  def print_header(self, solid: bool = False):
-    print(self.__column_pattern.format(*[c.name for c in self.__columns]))
-    if solid:
-      print("-" * sum([c.length + len(c.sep) for c in self.__columns]))
+  def print_header(self, solid: bool = False, custom_header: str = ""):
+    _line = self.__column_solid_pattern.format(*self.__sep_solid_columns) if solid or custom_header\
+      else self.__column_pattern.format(*self.__sep_columns)
+
+    if custom_header:
+      print()
+      """
+       custom_header
+            |   -- _table_width - P - len(custom_header)
+            ∨  ∨
+      .....LOL....
+      ^   ^      ^
+      S   P       _table_width
+      """
+      p = round(self.__table_width / 2 - len(custom_header) / 2) - 1
+      # ToDo: style with borders?
+      print(f" {self.__space * p}{custom_header}{self.__space * (self.__table_width - p - len(custom_header))}")
     else:
-      print(self.__column_pattern.format(*self.__sep_columns))
+      print(self.__column_pattern.format(*self.__column_titles))
+
+    print(_line)
 
   def print_row(self, *values: str):
     if self.__print_row_number:
@@ -127,9 +164,15 @@ class TableOutput(object):
 
 
 class StatusOutput(object):
-  def __init__(self, f: Callable[[], bool] or None = None, pool_size: int = 5):
+  def __init__(self, f: Callable[[], bool] or None = None, pool_size: int = 5, additional_errors: Callable = None):
+    """
+    :param f: function to execute
+    :param pool_size: size of pool wor executing f
+    :param additional_errors: ref to function with no args and return type List[str]
+    """
     self.__callable: Callable[[None], bool] = f
     self.__pool_size = pool_size
+    self.__additional_errors: Callable = additional_errors
     self.__errors = []
     self.__out = []
 
@@ -152,11 +195,12 @@ class StatusOutput(object):
   def split_string(self, s: str, chunk_size: int):
     return (s[i:chunk_size+i] for i in range(0, len(s), chunk_size))
 
-  def check_issues(self, last_errors: List[str] = None):
+  def check_issues(self):
+    last_errors: List[str] = self.__additional_errors() if self.__additional_errors else None
     if not last_errors and not self.__out and not self.__errors:
       return
 
-    self.__ci:int = 0
+    self.__ci: int = 0
     max_width: int = get_terminal_size(fallback=(140, 80))[0]
     dino: List[str] = self.__get_dino()
     spacing: int = len(dino[0])
@@ -175,11 +219,6 @@ class StatusOutput(object):
 
     print("")
     print("///////// Raaawr, something went wrong")
-    if self.__out:
-      _print("-----[STDOUT]")
-      for line in self.__out:
-        _print(line)
-
     if self.__errors:
       _print("-----[STDERR]")
       for line in self.__errors:
@@ -253,16 +292,43 @@ class StatusOutput(object):
           i += 1
 
           p.progress(ok_tasks+failed_tasks, status_pattern.format(ok_tasks, failed_tasks))
-
+      except Exception as e:
+        self.__errors += str(e).split(os.linesep)
       finally:
         sys.stdin, sys.stderr, sys.stdout = stdin, stderr, stdout
-
         p.stop()
-        self.__out = [line.strip() for line in mystdout.getvalue().split("\n") if line.strip()]
+
+        mystdout.seek(0, 0)
+        for line in mystdout.readlines():
+          print(line, end='')
+
         self.__errors = [line.strip() for line in mystderr.getvalue().split("\n") if line.strip()]
+        self.check_issues()
 
 
 class Console(object):
+  class status_context(ContextDecorator):
+    def __init__(self, action_text: str):
+      super(Console.status_context, self).__init__()
+
+      self.__stdout_wrap, self.__stderr_wrap, self.__stdin_wrap = StringIO(), StringIO(), StringIO()
+      self.__stdout, self.__stderr, self.__stdin = sys.stdout, sys.stderr, sys.stdin
+      sys.stdout, sys.stderr, sys.stdin,  = self.__stdout_wrap, self.__stderr_wrap, self.__stdin_wrap
+
+      self.__action_txt = action_text
+
+    def __enter__(self):
+      print(f"{self.__action_txt}...", flush=True, end='', file=self.__stdout)
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+      sys.stdout, sys.stderr, sys.stdin = self.__stdout, self.__stderr, self.__stdin
+      print(Colors.RED.wrap("fail") if exc_type else Colors.GREEN.wrap("ok"), flush=True)
+
+      self.__stdout_wrap.seek(0, 0)
+      for line in self.__stdout_wrap.readlines():
+        print(line, end='')
+
+      return exc_val is None
 
   @classmethod
   def ask_pass(cls, *args: str) -> str:
@@ -289,9 +355,20 @@ class Console(object):
     max_cluster_name: int = max((len(i) for i in servers.keys())) if len(servers) > 0 else 0
 
     for cl_name, servers in servers.items():
-      print(
-        f"{Colors.BRIGHT_YELLOW}{cl_name:{max_cluster_name}}{Colors.RESET} {{{Symbols.PC.yellow()}{len(servers)}; @{servers[0].domain}}}"
-      )
+      if servers:
+        max_host_name = max_cluster_name + len(servers[0].domain) + len(str(len(servers)))
+      else:
+        max_host_name: int = 0
+
+      if len(servers) > 10:
+        print(
+          f"{Colors.BRIGHT_YELLOW}{cl_name:{max_cluster_name}}{Colors.RESET}: {len(servers)} host(s)"
+        )
+      else:
+        for server in servers:
+          print(
+            f"{Colors.BRIGHT_YELLOW}{server.fqdn:{max_host_name}}{Colors.RESET}"
+          )
     print()
 
   @classmethod
@@ -308,8 +385,8 @@ class Console(object):
     print(f"{Colors.BRIGHT_BLUE}[DEBUG]{Colors.RESET}: {Colors.YELLOW}", *text, Colors.RESET)
 
   @classmethod
-  def print(cls, *args: str):
-    print(*args)
+  def print(cls, *args: str, flush: bool = False):
+    print(*args, flush=flush)
 
   @classmethod
   def confirm_operation(cls, op: str, servers: Dict[str, List[OpenStackVMInfo]]) -> bool:
@@ -318,4 +395,4 @@ class Console(object):
       print("No items to process")
       return False
     cls.print_list(servers)
-    return cls.ask_confirmation(f"Confirm {op} operation for {summary_servers} hosts")
+    return cls.ask_confirmation(f"Confirm {op} operation for {summary_servers} host(s)")

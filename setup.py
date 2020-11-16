@@ -21,6 +21,7 @@ import sys
 import re
 from typing import List
 
+# needed due to claims of importing distutils before setuptools
 import setuptools
 from distutils.command.install import install
 from setuptools import find_packages, setup

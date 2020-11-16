@@ -56,6 +56,7 @@ class JSONValueError(ValueError):
 
 class LocalCacheType(Enum):
   SERVERS = 0
+  KEYPAIR = 0
 
 
 class OpenStack(object):
@@ -179,7 +180,6 @@ class OpenStack(object):
 
     return True
 
-  @property
   def last_errors(self) -> List[str]:
     """
     Returning list of last errors with cleaning the results
@@ -260,7 +260,7 @@ class OpenStack(object):
           f"[{req_type.value}]",
           f"[{endpoint.value}]",
           f" {relative_uri}; ",
-          Colors.RESET,
+          str(Colors.RESET),
           f"{Colors.BRIGHT_BLACK}{os.path.basename(_f_caller[0].filename)}{Colors.RESET}: ",
           f"{Colors.BRIGHT_BLACK}->{Colors.RESET}".join([f"{f.function}:{f.lineno}" for f in _f_caller])
         ]
@@ -309,7 +309,7 @@ class OpenStack(object):
           f"[{req_type.value}]",
           f"[{endpoint.value}]",
           f" {relative_uri}; ",
-          Colors.RESET,
+          str(Colors.RESET),
           f"{Colors.BRIGHT_BLACK}{os.path.basename(_f_caller[0].filename)}{Colors.RESET}: ",
           f"{Colors.BRIGHT_BLACK}->{Colors.RESET}".join([f"{f.function}:{f.lineno}" for f in _f_caller])
         ]
@@ -498,13 +498,24 @@ class OpenStack(object):
 
     return list(self.__flavors_cache.values())
 
-  def get_flavors(self, image: OSImageInfo) -> Iterable[OSFlavor]:
+  def get_flavors(self, image: OSImageInfo = None) -> Iterable[OSFlavor]:
     """
     Returns acceptable flavors for image
     """
     for fl in sorted(self.flavors, key=lambda x: x.disk):
-      if fl.disk > image.size and fl.ephemeral_disk > 0:
+      if image and fl.disk > image.size and fl.ephemeral_disk > 0:
         yield fl
+
+  def get_flavor(self, image: OSImageInfo = None, name: str = "") -> OSFlavor or None:
+    flavors = self.flavors
+    if name and name in self.__flavors_cache:
+      return self.__flavors_cache[name]
+
+    flavors = list(self.get_flavors(image))
+    if flavors:
+      return flavors[0]
+
+    return None
 
   def get_image_by_alias(self, alias: str) -> Iterable[OSImageInfo]:
     """
@@ -539,7 +550,10 @@ class OpenStack(object):
     )
     servers = ComputeServers(serialized_obj=servers_raw).servers
     obj = OpenStackVM(servers, self.users, self.__cache_images, self.__flavors_cache, self.__networks_cache)
-    return self.__set_local_cache(LocalCacheType.SERVERS, obj)
+    if arguments:  # do no cache custom requests
+      return obj
+    else:
+      return self.__set_local_cache(LocalCacheType.SERVERS, obj)
 
   def get_server_by_id(self, _id: str or OpenStackVMInfo) -> OpenStackVMInfo:
     if isinstance(_id, OpenStackVMInfo):
@@ -586,39 +600,70 @@ class OpenStack(object):
     self._conf.set_cache(OSNetwork, self.__networks_cache.serialize())
     return self.__networks_cache
 
-  def get_server_by_cluster(self, search_pattern: str = "", sort: bool = False,
-                            filter_func: Callable[[OpenStackVMInfo], bool] = None) -> Dict[str, List[OpenStackVMInfo]]:
+  def get_server_by_cluster(self,
+                            search_pattern: str = "",
+                            sort: bool = False,
+                            filter_func: Callable[[OpenStackVMInfo], bool] = None,
+                            no_cache: bool = False,
+                            ) -> Dict[str, List[OpenStackVMInfo]]:
     """
     :param search_pattern: vm search pattern list
     :param sort: sort resulting list
+    :param no_cache: force real server query, do not try to use cache
     :param filter_func: if return true - item would be filtered, false not
     """
     _servers: Dict[str, List[OpenStackVMInfo]] = {}
-    for server in self.servers:
-      _sname = server.cluster_name.lower()[:len(search_pattern)]
-      if search_pattern and search_pattern.lower() != _sname:
-        continue
+    # if no cached queries available, execute limited query
+    if no_cache or self.__get_local_cache(LocalCacheType.SERVERS) is None:
+      servers = self.get_servers(arguments={
+        "name": f"^{search_pattern}.*"
+      }).items
 
-      if filter_func and filter_func(server):
-        continue
+      for server in servers:
+        if filter_func and filter_func(server):
+          continue
 
-      if server.cluster_name not in _servers:
-        _servers[server.cluster_name] = []
+        if server.cluster_name not in _servers:
+          _servers[server.cluster_name] = []
 
-      _servers[server.cluster_name].append(server)
+        _servers[server.cluster_name].append(server)
+    else:  # if we already requested the full list, no need for another call
+      for server in self.servers:
+        _sname = server.cluster_name.lower()[:len(search_pattern)]
+        if search_pattern and search_pattern.lower() != _sname:
+          continue
+
+        if filter_func and filter_func(server):
+          continue
+
+        if server.cluster_name not in _servers:
+          _servers[server.cluster_name] = []
+
+        _servers[server.cluster_name].append(server)
 
     if sort:
       _servers = collections.OrderedDict(sorted(_servers.items()))
     return _servers
 
-  def get_server_console_log(self, server_id: str or OpenStackVMInfo, grep_by: str = None) -> List[str]:
+  def get_server_console_log(self,
+                             server_id: str or OpenStackVMInfo,
+                             grep_by: str = None,
+                             last_lines: int = 0
+                             ) -> List[str]:
     if isinstance(server_id, OpenStackVMInfo):
       server_id = server_id.id
+
+    params = None
+    if last_lines:
+      params = {
+        "length": last_lines
+      }
 
     r = self.__request(
       EndpointTypes.compute,
       f"/servers/{server_id}/action",
       req_type=CurlRequestType.POST,
+      params=params,
       data={
         "os-getConsoleOutput": {
           "length": None
@@ -649,7 +694,14 @@ class OpenStack(object):
     except ValueError as e:
       return False
 
-  def get_keypairs(self) -> List[VMKeypairItemValue]:
+  def get_keypairs(self, no_cache: bool = False) -> List[VMKeypairItemValue]:
+    if no_cache:
+      self.__invalidate_local_cache(LocalCacheType.KEYPAIR)
+
+    _cache = self.__get_local_cache(LocalCacheType.KEYPAIR)
+    if _cache:
+      return list(_cache.values())
+
     try:
       r = self.__request(
         EndpointTypes.compute,
@@ -657,13 +709,21 @@ class OpenStack(object):
         req_type=CurlRequestType.GET,
         is_json=True
       )
-      return [kp.keypair for kp in VMKeypairs(serialized_obj=r).keypairs]
+
+      return list(self.__set_local_cache(
+        LocalCacheType.KEYPAIR,
+        {kp.keypair.name: kp.keypair for kp in VMKeypairs(serialized_obj=r).keypairs}
+      ).values())
     except ValueError as e:
       self.__last_errors.append(str(e))
 
     return []
 
-  def get_keypair(self, name: str, default: VMKeypairItemValue = None) -> VMKeypairItemValue or None:
+  def get_keypair(self, name: str, default: VMKeypairItemValue = None, no_cache: bool = False) -> VMKeypairItemValue or None:
+    _cache = self.__get_local_cache(LocalCacheType.KEYPAIR)
+    if not no_cache and _cache and name in _cache:
+      return _cache[name]
+
     try:
       r = self.__request(
         EndpointTypes.compute,
@@ -803,7 +863,7 @@ echo "@users@: ${{USERS}}"
     response = VMCreateResponse(serialized_obj=r)
 
     if response.reservation_id:
-      servers = self.get_servers({"reservation_id": response.reservation_id}, invalidate_cache=True)
+      servers = self.get_servers({"reservation_id": response.reservation_id})
       return list(servers.items)
 
     return [self.get_server_by_id(response.server.id)]

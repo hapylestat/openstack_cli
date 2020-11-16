@@ -30,7 +30,7 @@ def __init__(conf: Configuration, name: str):
   def __work_unit(value: OpenStackVMInfo) -> bool:
     return ostack.stop_instance(value)
 
-  so = StatusOutput(__work_unit, pool_size=5)
+  so = StatusOutput(__work_unit, pool_size=5, additional_errors=ostack.last_errors)
 
   servers = ostack.get_server_by_cluster(
     name,
@@ -41,7 +41,6 @@ def __init__(conf: Configuration, name: str):
     flatten_servers = [server for server_pair in servers.values() for server in server_pair]
 
     so.start("Stopping nodes", objects=flatten_servers)
-    so.check_issues(ostack.last_errors)
   else:
     print("Aborted....")
 

@@ -14,6 +14,8 @@
 #  limitations under the License.
 from time import sleep
 
+from openstack_cli.core.colors import Colors
+
 from openstack_cli.commands.list import print_cluster
 from openstack_cli.core.output import StatusOutput, Console, TableOutput, TableColumn
 from openstack_cli.modules.openstack import OpenStack, OpenStackVMInfo
@@ -36,12 +38,11 @@ def __init__(conf: Configuration, name: str, count: int, flavor: str, image: str
   ostack = OpenStack(conf)
 
   def __filter(vm: OpenStackVMInfo) -> bool:
-    __name, _, _ = str(vm.name).rpartition('-')
-    return __name != name
+    return not str(vm.name).startswith(name)
 
   servers = ostack.get_server_by_cluster(name, True, filter_func=__filter)
   if servers:
-    Console.print_warning(f"Cluster with name {name} already exists, instance would be not created")
+    Console.print_warning(f"Cluster with name '{Colors.BRIGHT_WHITE.wrap(name)}' already exists, instance would be not be created")
     print_cluster(servers)
     return
 
@@ -53,45 +54,39 @@ def __init__(conf: Configuration, name: str, count: int, flavor: str, image: str
       if x.status not in [ServerState.building, ServerState.build, ServerState.active]:
         return False
 
-      sleep(1)
+      sleep(2)
+      #  ToDo: short term cache data by reservation_id
       x = ostack.get_server_by_id(x)
 
-  image = list(ostack.get_image_by_alias(image))
-  img_flavor = None
-  if image:
-    flavors = ostack.get_flavors(image[0])
-    for fl in flavors:
-      if fl.name == flavor:
-        img_flavor = fl
-        break
+  with Console.status_context("Resolving cluster configuration"):
+    image = list(ostack.get_image_by_alias(image))
+    if not image:
+      raise RuntimeError("Cannot resolve image name for the request")
 
-  _default_key = ostack.get_keypairs()[0] if ostack.get_keypairs() else None
-  _key = _default_key if not key else ostack.get_keypair(name, _default_key)
-  _pass = conf.default_vm_password if not password else password
+    image = image[0]
+    img_flavor = ostack.get_flavor(image, flavor)
+    _default_key = ostack.get_keypairs()[0] if ostack.get_keypairs() else None
+    _key = _default_key if not key else ostack.get_keypair(key, _default_key)
+    _pass = conf.default_vm_password if not password else password
 
   # == create nodes
-  so = StatusOutput(__work_unit, pool_size=2)
 
-  print("Asking for node creation....", end='')
-  servers = ostack.create_instances(
-    cluster_name=name,
-    image=image[0],
-    flavor=img_flavor,
-    password=_pass,
-    count=count,
-    ssh_key=_key
-  )
+  so = StatusOutput(__work_unit, pool_size=2, additional_errors=ostack.last_errors)
 
-  if not servers:
-    print('fail')
-    so.check_issues(ostack.last_errors)
-    return
+  with Console.status_context("Asking for node creation"):
+    servers = ostack.create_instances(
+      cluster_name=name,
+      image=image,
+      flavor=img_flavor,
+      password=_pass,
+      count=count,
+      ssh_key=_key
+    )
+    if not servers:
+      so.check_issues()
+      return
 
-  print("ok")
   so.start("Creating nodes ", objects=servers)
-  if ostack.has_errors:
-    so.check_issues(ostack.last_errors)
-    return
 
   # == Configure nodes
   def __work_unit_waiter(x: OpenStackVMInfo) -> bool:
@@ -106,10 +101,8 @@ def __init__(conf: Configuration, name: str, count: int, flavor: str, image: str
       tries += 1
     return False
 
-  so = StatusOutput(__work_unit_waiter, pool_size=5)
+  so = StatusOutput(__work_unit_waiter, pool_size=5, additional_errors=ostack.last_errors)
   so.start("Configure nodes", servers)
-  if ostack.has_errors:
-    so.check_issues(ostack.last_errors)
 
   console = ostack.get_server_console_log(servers[0], grep_by="cloud-init")
 
@@ -118,13 +111,13 @@ def __init__(conf: Configuration, name: str, count: int, flavor: str, image: str
     TableColumn("Value", 30)
   )
 
-  to.print_header()
+  to.print_header(custom_header="SUMMARY")
 
   for line in console:
     if "@users@" in line:
       users = line.split("@users@:")[1].strip().split(" ")
-      to.print_row("User accounts", ",".join(users))
+      to.print_row("Accounts", ",".join(users))
 
-  to.print_row("Used key", _key.name if _key else "Not used")
-  to.print_row("Used password", _pass)
+  to.print_row("Key", _key.name if _key else "Not used")
+  to.print_row("Password", _pass)
 
