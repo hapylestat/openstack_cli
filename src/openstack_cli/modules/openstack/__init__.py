@@ -507,13 +507,14 @@ class OpenStack(object):
         yield fl
 
   def get_flavor(self, image: OSImageInfo = None, name: str = "") -> OSFlavor or None:
-    flavors = self.flavors
-    if name and name in self.__flavors_cache:
-      return self.__flavors_cache[name]
-
-    flavors = list(self.get_flavors(image))
-    if flavors:
-      return flavors[0]
+    if not name:
+      flavors = list(self.get_flavors(image))
+      if flavors:
+        return flavors[0]
+    else:
+      for fl in self.flavors:
+        if fl.name == name:
+          return fl
 
     return None
 
@@ -525,12 +526,12 @@ class OpenStack(object):
       if img.alias == alias:
         yield img
 
-  def get_servers(self, arguments: dict = None, invalidate_cache: bool = False) -> OpenStackVM:
+  def get_servers(self, arguments: dict = None, invalidate_cache: bool = False) -> OpenStackVM or None:
     if invalidate_cache:
       self.__invalidate_local_cache(LocalCacheType.SERVERS)
 
     __cached_value: OpenStackVM = self.__get_local_cache(LocalCacheType.SERVERS)
-    if __cached_value and arguments is None:
+    if __cached_value is None and arguments is None:
       return __cached_value
 
     if arguments is None:
