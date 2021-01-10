@@ -138,7 +138,7 @@ class OpenStack(object):
 
     if not r:
       from openstack_cli.core.output import Console
-      Console.print_error("Auth timeout error")
+      Console.print_error("Authentication server is not accessible")
       return False
 
     if r.code not in [200, 201]:
@@ -168,7 +168,7 @@ class OpenStack(object):
 
     if not r:
       from openstack_cli.core.output import Console
-      Console.print_error("Auth timeout error: " + r.raw)
+      Console.print_error("Authentication server is not accessible: " + r.raw)
       return False
 
     if r.code not in [200, 201]:
