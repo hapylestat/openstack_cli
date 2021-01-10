@@ -14,20 +14,20 @@
 #  limitations under the License.
 from time import sleep
 
-from openstack_cli.core.colors import Colors
+from openstack_cli.modules.apputils.terminal.colors import Colors
 
 from openstack_cli.commands.list import print_cluster
 from openstack_cli.core.output import StatusOutput, Console, TableOutput, TableColumn
 from openstack_cli.modules.openstack import OpenStack, OpenStackVMInfo
-from openstack_cli.modules.config import Configuration
-from openstack_cli.modules.discovery import CommandMetaInfo
+from openstack_cli.core.config import Configuration
+from openstack_cli.modules.apputils.discovery import CommandMetaInfo
 from openstack_cli.modules.openstack.objects import ServerState
 
 
-__module__ = CommandMetaInfo("up")
-__args__ = __module__.get_arguments_builder() \
-  .add_default_argument("name", str, "name of the cluster")\
-  .add_default_argument("count", int, "amount of nodes")\
+__module__ = CommandMetaInfo("up", "Deploys new cluster")
+__args__ = __module__.arg_builder\
+  .add_default_argument("name", str, "Name of the cluster")\
+  .add_default_argument("count", int, "Amount of nodes")\
   .add_argument("flavor", str, "Host flavor", default="m1.large")\
   .add_argument("image", str, "VM OS to spin up", default="centos-761810")\
   .add_argument("key", str, "Key to use for login", default="")\

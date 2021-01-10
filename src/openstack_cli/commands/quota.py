@@ -16,13 +16,13 @@ from typing import List
 
 from openstack_cli.core.output import TableOutput, TableColumn, TableColumnPosition
 
-from openstack_cli.core.colors import Colors
-from openstack_cli.modules.config import Configuration
-from openstack_cli.modules.discovery import CommandMetaInfo
+from openstack_cli.modules.apputils.terminal.colors import Colors
+from openstack_cli.core.config import Configuration
+from openstack_cli.modules.apputils.discovery import CommandMetaInfo
 from openstack_cli.modules.openstack import OpenStack
 
 
-__module__ = CommandMetaInfo("quota")
+__module__ = CommandMetaInfo("quota", item_help="Show the allowed resource limits for the project")
 
 
 def get_percents(current: float, fmax: float):
@@ -47,8 +47,8 @@ def __init__(conf: Configuration):
   limits = stack.quotas
 
   to = TableOutput(
-    TableColumn("Metric", length=limits.max_metric_len, pos=TableColumnPosition.right, sep=":"),
-    TableColumn("Used", length=7, pos=TableColumnPosition.right, sep="|",),
+    TableColumn("Metric", length=limits.max_metric_len, pos=TableColumnPosition.right, sep=":", inv_ch=Colors.RED.wrap_len()),
+    TableColumn("Used", length=7, pos=TableColumnPosition.right, sep="|", inv_ch=Colors.RED.wrap_len()),
     TableColumn("Avl.", length=7, pos=TableColumnPosition.right, sep="|",),
     TableColumn("Total", length=7, pos=TableColumnPosition.right),
     TableColumn("", length=30)

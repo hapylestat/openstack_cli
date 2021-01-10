@@ -17,11 +17,11 @@ from typing import List
 
 from openstack_cli.core.output import TableOutput, TableColumn, TableStyle
 from openstack_cli.modules.openstack import OpenStack
-from openstack_cli.modules.config import Configuration
-from openstack_cli.modules.discovery import CommandMetaInfo
+from openstack_cli.core.config import Configuration
+from openstack_cli.modules.apputils.discovery import CommandMetaInfo
 
 
-__module__ = CommandMetaInfo("networks")
+__module__ = CommandMetaInfo("networks", "Shows available networks")
 
 from openstack_cli.modules.openstack.objects import OSNetworkItem
 

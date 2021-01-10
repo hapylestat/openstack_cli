@@ -16,18 +16,38 @@
 import os
 from typing import Dict, List
 
-from openstack_cli.core.colors import Colors, Symbols
+from openstack_cli.modules.apputils.terminal.colors import Colors, Symbols
 from openstack_cli.core.output import Console, TableOutput, TableColumn, TableColumnPosition, StatusOutput
-from openstack_cli.modules.config import Configuration
-from openstack_cli.modules.discovery import CommandMetaInfo, CommandArgumentException
+from openstack_cli.core.config import Configuration
+from openstack_cli.modules.apputils.discovery import CommandMetaInfo, CommandArgumentException
 from openstack_cli.modules.openstack import OpenStack, VMKeypairItemValue
 from openstack_cli.modules.openstack.api_objects import VMKeyPairItemBuilder
 from openstack_cli.modules.openstack.objects import OSNetworkItem
 
+command_help = [
+  "Name of the command",
+  "",
+  "Available commands:  reset, reset-cache, network, keys",
+  "",
+  "reset                               - Completely reset application configuration",
+  "reset-cache                         - Reset cached entities",
+  "network                             - Reconfigure default network interface for the new VM",
+  "keys [list|del|export|create] [arg] - Manage ssh keys for the VM"
+]
+
+subcommand_help = [
+  "Subcommands for 'keys' command: ",
+  "",
+  "list                                - list available ssh keys",
+  "del [name]                          - Delete ssh key, if no name provided the selection list would be provided",
+  "export [name]                       - Export public and private keys to current directory",
+  "create [name]                       - Create new pair of public/private keys"
+]
+
 __module__ = CommandMetaInfo("conf")
-__args__ = __module__.get_arguments_builder()\
-  .add_default_argument("command", str, "name of the command", default="help")\
-  .add_default_argument("sub_command", str, "name of the sub-command", default="-")\
+__args__ = __module__.arg_builder\
+  .add_default_argument("command", str, "\n".join(command_help), default="help")\
+  .add_default_argument("sub_command", str, "\n".join(subcommand_help), default="-")\
   .add_default_argument("arg", str, "sub command argument", default="")
 
 
@@ -87,8 +107,8 @@ def _keys_create(conf: Configuration, ostack: OpenStack, name: str):
     Console.print(f"Key with name '{key.name}' successfully added")
   except ValueError as e:
     if ostack.has_errors:
-      so = StatusOutput(None, pool_size=0)
-      so.check_issues(ostack.last_errors)
+      so = StatusOutput(None, pool_size=0, additional_errors=ostack.last_errors)
+      so.check_issues()
     else:
       Console.print_error(f"Configuration already have the key with name {key.name}, please remove it first")
 
@@ -102,11 +122,11 @@ def _keys_list(conf: Configuration, ostack: OpenStack, show_row_nums: bool = Fal
 
   max_key_len = len(max(conf.key_names))
   to = TableOutput(
-    TableColumn("Key Name", max_key_len + 2, inv_ch=len(KEY_ICON)-2, pos=TableColumnPosition.left),
+    TableColumn("Key Name", max_key_len + len(KEY_ICON), inv_ch=len(KEY_ICON)-2, pos=TableColumnPosition.left),
     TableColumn("Priv.Key", 3, inv_ch=len(CHECK_ICON)-2, pos=TableColumnPosition.center),
     TableColumn("Pub.Key", 3, inv_ch=len(CHECK_ICON)-2, pos=TableColumnPosition.center),
     TableColumn("Rem.Sync", 3, inv_ch=len(CHECK_ICON), pos=TableColumnPosition.center),
-    TableColumn("Fingerprint", 20, pos=TableColumnPosition.left),
+    TableColumn("Fingerprint", 48, pos=TableColumnPosition.left),
     print_row_number=show_row_nums
   )
 
@@ -136,8 +156,8 @@ def _keys_del(conf: Configuration, ostack: OpenStack, name: str, force: bool = F
   if Console.ask_confirmation(f"Confirm removing key '{name}'", force=force):
     ostack.delete_keypair(name)
     if ostack.has_errors:
-      so = StatusOutput()
-      so.check_issues(ostack.last_errors)
+      so = StatusOutput(additional_errors=ostack.last_errors)
+      so.check_issues()
     else:
       Console.print("Removed from the server")
 
@@ -220,4 +240,4 @@ def __init__(conf: Configuration, command: str, sub_command: str, arg: str):
   elif command == "keys":
     keys(conf, sub_command, arg)
   else:
-    print("Keep watching for the new features, thanks :) ")
+    raise CommandArgumentException(f"Command {command} is not supported")

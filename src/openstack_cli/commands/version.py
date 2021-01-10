@@ -16,19 +16,18 @@
 import os
 from calendar import timegm
 from datetime import datetime
-from time import strptime, sleep
+from time import strptime
 from typing import List, Tuple
 
-from openstack_cli.core.colors import Colors
-from openstack_cli.modules.curl import curl
-from openstack_cli.modules.json2obj import SerializableObject
+from openstack_cli.modules.apputils.terminal.colors import Colors
+from openstack_cli.modules.apputils.curl import curl
+from openstack_cli.modules.apputils.json2obj import SerializableObject
 
 from openstack_cli import __app_name__, __app_version__, __my_root_dir__, __properties_file__
-from openstack_cli.modules.config import Configuration
-from openstack_cli.modules.discovery import CommandMetaInfo
+from openstack_cli.modules.apputils.discovery import CommandMetaInfo
 
-__module__ = CommandMetaInfo("version")
-__args__ = __module__.get_arguments_builder()
+__module__ = CommandMetaInfo("version", "Display application version and available updates")
+__args__ = __module__.arg_builder
 
 
 class ConfProperties(SerializableObject):
@@ -46,11 +45,11 @@ class ConfProperties(SerializableObject):
     if self.app_version.startswith("v"):
       try:
         return float(self.app_version[1:])
-      except:
+      except ValueError:
         return 0.0
     try:
       return float(self.app_version)
-    except:
+    except ValueError:
       return 0.0
 
 #
@@ -181,5 +180,5 @@ def print_little_banner():
   print(banner, flush=True)
 
 
-def __init__(conf: Configuration):
+def __init__():
   check()

@@ -23,6 +23,7 @@ from typing import List
 
 # needed due to claims of importing distutils before setuptools
 import setuptools
+from apputils_setup import AppUtilsCommand
 from distutils.command.install import install
 from setuptools import find_packages, setup
 from wheel.bdist_wheel import bdist_wheel
@@ -182,7 +183,8 @@ setup(
   ),
   cmdclass={
     "install": MyInstall,
-    "bdist_wheel": MyWheel
+    "bdist_wheel": MyWheel,
+    "apputils": AppUtilsCommand
   },
   install_requires=load_requirements(),
   entry_points={

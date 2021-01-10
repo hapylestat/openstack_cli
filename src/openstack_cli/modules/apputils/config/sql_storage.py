@@ -1,23 +1,21 @@
-# Licensed to the Apache Software Foundation (ASF) under one or more
-# contributor license agreements.  See the NOTICE file distributed with
-# this work for additional information regarding copyright ownership.
-# The ASF licenses this file to You under the Apache License, Version 2.0
-# (the "License"); you may not use this file except in compliance with
-# the License.  You may obtain a copy of the License at
+#  Licensed to the Apache Software Foundation (ASF) under one or more
+#  contributor license agreements.  See the NOTICE file distributed with
+#  this work for additional information regarding copyright ownership.
+#  The ASF licenses this file to You under the Apache License, Version 2.0
+#  (the "License"); you may not use this file except in compliance with
+#  the License.  You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#      http://www.apache.org/licenses/LICENSE-2.0
 #
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
-# =========================================================================
-# The library is a part of AppUtils library
-# GitHub: https://github.com/hapylestat/apputils
-# Contacts: hapy.lestat@gmail.com
-# =========================================================================
+#  Unless required by applicable law or agreed to in writing, software
+#  distributed under the License is distributed on an "AS IS" BASIS,
+#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#  See the License for the specific language governing permissions and
+#  limitations under the License.
+#
+#  Github: https://github.com/hapylestat/apputils
+#
+#
 
 import sqlite3
 import os
@@ -26,9 +24,10 @@ import json
 import time
 from enum import Enum
 from getpass import getpass
-from typing import List, Callable, Tuple, Iterable
-from openstack_cli.modules.config.base import BaseStorage
+from typing import List, Callable
 from cryptography.fernet import Fernet, InvalidToken
+
+from .base_storage import BaseStorage
 
 
 class StoragePropertyType(Enum):
@@ -147,7 +146,7 @@ class SQLStorage(BaseStorage):
       with open(self.secret_file_path, "wb") as f:
         f.write(key)
 
-      print(f"Key saved to {self.secret_file_path}, keep it save")
+      print(f"Key saved to {self.secret_file_path}, keep it safe")
 
   def _load_secret_key(self, persist: bool = False) -> str or None:
     if persist and not os.path.exists(self.secret_file_path):
@@ -215,7 +214,7 @@ class SQLStorage(BaseStorage):
           cur.execute(sql)
 
       if f:
-       return f(cur)
+        return f(cur)
       else:
         return cur.fetchall()
     finally:
@@ -330,8 +329,8 @@ class SQLStorage(BaseStorage):
     return True
 
   def set_text_property(self, table: str, name: str, value, encrypted: bool = False):
-     p = StorageProperty(name, StoragePropertyType.text, value)
-     self.set_property(table, p, encrypted)
+    p = StorageProperty(name, StoragePropertyType.text, value)
+    self.set_property(table, p, encrypted)
 
   def property_existed(self, table: str, name: str) -> bool:
     if table not in self.__get_table_list():

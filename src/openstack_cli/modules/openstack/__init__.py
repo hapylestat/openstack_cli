@@ -25,9 +25,9 @@ from inspect import FrameInfo
 from json import JSONDecodeError
 from typing import Dict, List, Callable, Iterable, TypeVar
 
-from openstack_cli.core.colors import Colors
-from openstack_cli.modules.config import Configuration
-from openstack_cli.modules.curl import curl, CurlRequestType, CURLResponse
+from openstack_cli.modules.apputils.terminal.colors import Colors
+from openstack_cli.core.config import Configuration
+from openstack_cli.modules.apputils.curl import curl, CurlRequestType, CURLResponse
 from openstack_cli.modules.openstack.api_objects import ComputeLimits, VolumeV3Limits, DiskImages, \
   DiskImageInfo, ComputeServers, NetworkLimits, ComputeFlavors, ComputeFlavorItem, Networks, NetworkItem, Subnets, \
   VMCreateResponse, ComputeServerInfo, ComputeServerActions, ComputeServerActionRebootType, VMKeypairItem, \
@@ -79,19 +79,18 @@ class OpenStack(object):
     self.__is_auth: bool = False
 
   def __invalidate_local_cache(self, cache_type: LocalCacheType):
-    if cache_type == LocalCacheType.SERVERS:
-      self.__local_cache[cache_type] = None
+    self.__local_cache[cache_type.value] = None
 
   def __set_local_cache(self, cache_type: LocalCacheType, value: T) -> T:
-    self.__local_cache[cache_type] = value
+    self.__local_cache[cache_type.value] = value
 
     return value
 
   def __get_local_cache(self, cache_type: LocalCacheType) -> T:
-    if cache_type not in self.__local_cache:
+    if cache_type.value not in self.__local_cache:
       return None
 
-    return self.__local_cache[cache_type]
+    return self.__local_cache[cache_type.value]
 
   def __init_after_auth__(self):
     # getting initial data
@@ -116,7 +115,13 @@ class OpenStack(object):
       server_keys = self.get_keypairs()
       for server_key in server_keys:
         if hash(server_key) not in conf_keys_hashes:
-          self._conf.add_key(server_key)
+          try:
+            self._conf.add_key(server_key)
+          except ValueError:
+            print(f"Key {server_key.name} is present locally but have wrong hash, replacing with server key")
+            self._conf.delete_key(server_key.name)
+            self._conf.add_key(server_key)
+      self._conf.set_cache(VMKeypairItemValue, "this super cache")
 
   def __check_token(self) -> bool:
     headers = {
@@ -533,7 +538,7 @@ class OpenStack(object):
     if invalidate_cache:
       self.__invalidate_local_cache(LocalCacheType.SERVERS)
 
-    __cached_value: OpenStackVM = self.__get_local_cache(LocalCacheType.SERVERS)
+    __cached_value = self.__get_local_cache(LocalCacheType.SERVERS)
     if __cached_value is not None and not arguments:
       return __cached_value
 
@@ -861,11 +866,8 @@ echo "@users@: ${{USERS}}"
       self.__last_errors.append(str(e))
       return []
 
-    response = VMCreateResponse(serialized_obj=r)
-
-    if response.reservation_id:
+    if (response := VMCreateResponse(serialized_obj=r)) and response.reservation_id:
       servers = self.get_servers({"reservation_id": response.reservation_id})
       return list(servers.items)
 
     return [self.get_server_by_id(response.server.id)]
-

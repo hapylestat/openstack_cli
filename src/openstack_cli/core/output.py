@@ -20,14 +20,14 @@ from io import StringIO
 from enum import Enum
 from concurrent.futures._base import Future, CancelledError
 from concurrent.futures.thread import ThreadPoolExecutor
-from contextlib import contextmanager, ContextDecorator
+from contextlib import ContextDecorator
 from getpass import getpass
-from typing import Callable, List, Dict, TypeVar, Tuple, Iterator
+from typing import Callable, List, Dict, TypeVar
 
-from openstack_cli.core.colors import Colors, Symbols
+from openstack_cli.modules.apputils.terminal.colors import Colors, Symbols
 from openstack_cli.modules.openstack import OpenStackVMInfo, JSONValueError
 from openstack_cli.modules.openstack.api_objects import ApiErrorResponse
-from openstack_cli.modules.progressbar import ProgressBar, ProgressBarOptions, CharacterStyles, get_terminal_size
+from openstack_cli.modules.apputils.progressbar import ProgressBar, ProgressBarOptions, CharacterStyles, get_terminal_size
 
 
 T = TypeVar('T')
@@ -151,10 +151,12 @@ class TableOutput(object):
     if self.__print_row_number:
       values = [str(self.__current_row)] + list(values)
 
+    pattern = self.__column_inv_pattern if "\033[" in values[0] else self.__column_pattern
+
     if self.__style == TableStyle.line_highlight:
-      print(f"{self.__prev_color}{self.__column_inv_pattern.format(*values)}{Colors.RESET}")
+      print(f"{self.__prev_color}{pattern.format(*values)}{Colors.RESET}")
     else:
-      print(self.__column_inv_pattern.format(*values))
+      print(pattern.format(*values))
 
     if values[-1:][0]:
       self.__prev_color = Colors.BRIGHT_WHITE if self.__prev_color == Colors.BRIGHT_BLACK else Colors.BRIGHT_BLACK

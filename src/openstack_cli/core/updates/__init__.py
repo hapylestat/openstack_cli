@@ -13,36 +13,12 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
-# =========================================================================
-# The library is a part of AppUtils library
-# GitHub: https://github.com/hapylestat/apputils
-# Contacts: hapy.lestat@gmail.com
-# =========================================================================
 
-import string
-import re
-from collections import defaultdict
+from . import versions
+from ...modules.apputils.config.upgrades import UpgradeManager
+
+upgrade_manager = UpgradeManager()
 
 
-FORMAT_RE = re.compile("\{\{([^{]*)\}\}")
-
-
-def safe_format(s, **kwargs):
-  """
-  :type s str
-  """
-  return string.Formatter().vformat(s, (), defaultdict(str, **kwargs))
-
-
-def safe_format_sh(s, **kwargs):
-  """
-  :type s str
-  :type kwargs dict
-  """
-
-  to_replace = set(kwargs.keys()) & set(FORMAT_RE.findall(s))
-
-  for item in to_replace:
-    s = s.replace("{{" + item + "}}", kwargs[item])
-
-  return s
+def import_upgrade_packs():
+  from . import upgrade_catalog_11

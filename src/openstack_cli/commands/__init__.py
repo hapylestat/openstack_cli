@@ -14,6 +14,6 @@
 # limitations under the License.
 
 
-from openstack_cli.modules.discovery import CommandsDiscovery
+from openstack_cli.modules.apputils.discovery import CommandsDiscovery
 
 discovery = CommandsDiscovery(__file__, __name__).collect()

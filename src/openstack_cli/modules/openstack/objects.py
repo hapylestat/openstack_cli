@@ -22,7 +22,7 @@ from io import RawIOBase
 from time import strptime
 from typing import List, Dict, Tuple
 
-from openstack_cli.modules.json2obj import SerializableObject
+from openstack_cli.modules.apputils.json2obj import SerializableObject
 from openstack_cli.modules.openstack.api_objects import EndpointCatalog, ComputeServerInfo, DiskImageInfo, \
   ComputeFlavorItem, NetworkItem, SubnetItem, VMCreateServer, VMCreateNetworksItem, VMCreateNewFileItem, \
   VMCreateServerItem, LoginResponse
@@ -390,7 +390,7 @@ class OSFlavor(SerializableObject):
 
 class OSNetworkItem(SerializableObject):
   name: str = ""
-  status: bool = False
+  status: str = False
   is_default: bool = False
   network_id: str = ""
   subnet_id: str = ""
@@ -465,7 +465,6 @@ class OSNetwork(SerializableObject):
 class VMCreateBuilder(object):
   def __init__(self, name: str):
     self.__vm = VMCreateServerItem(name=name)
-    self.__obj: VMCreateServer = VMCreateServer(server=self.__vm)
 
   def set_flavor(self, flavor: OSFlavor):
     self.__vm.flavorRef = flavor.id
@@ -517,7 +516,7 @@ class VMCreateBuilder(object):
     return self
 
   def build(self):
-    return self.__obj
+    return VMCreateServer(server=self.__vm)
 
 
 class OpenStackVM(object):

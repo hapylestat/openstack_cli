@@ -12,13 +12,10 @@
 #  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
-
-# =========================================================================
-# The library is a part of AppUtils library
-# GitHub: https://github.com/hapylestat/apputils
-# Contacts: hapy.lestat@gmail.com
-# =========================================================================
-
+#
+#  Github: https://github.com/hapylestat/apputils
+#
+#
 
 import sys
 import time
@@ -26,8 +23,8 @@ import os
 from datetime import datetime
 from enum import Enum
 
-from openstack_cli.modules.progressbar.get_terminal_size import get_terminal_size
-from openstack_cli.modules.progressbar.string_utils import safe_format
+from .string_utils import safe_format
+from ..terminal.get_terminal_size import get_terminal_size
 
 """
     Template description:
@@ -256,7 +253,7 @@ class ProgressBar(object):
 
   def reset(self):
     self._status = ProgressBarStatus.stopped
-    self._max = 0
+    self._max = 1
     self._value = 0
     self.progress(0)
 

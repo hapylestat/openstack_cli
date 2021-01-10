@@ -16,15 +16,15 @@
 
 from openstack_cli.core.output import TableOutput, TableColumn
 
-from openstack_cli.core.colors import Colors, Symbols
-from openstack_cli.modules.config import Configuration
-from openstack_cli.modules.discovery import CommandMetaInfo
+from openstack_cli.modules.apputils.terminal.colors import Colors, Symbols
+from openstack_cli.core.config import Configuration
+from openstack_cli.modules.apputils.discovery import CommandMetaInfo
 from openstack_cli.modules.openstack import OpenStack
 
 
-__module__ = CommandMetaInfo("info")
-__args__ = __module__.get_arguments_builder() \
-  .add_default_argument("search_pattern", str, "search query", default="")
+__module__ = CommandMetaInfo("info", "Shows the detailed information about requested VMs")
+__args__ = __module__.arg_builder\
+  .add_default_argument("search_pattern", str, "Search query", default="")
 
 from openstack_cli.modules.openstack.objects import ServerPowerState
 

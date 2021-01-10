@@ -12,8 +12,11 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+#
+# Github: https://github.com/hapylestat/apputils
+#
+#
 
-import sys
 import json
 import base64
 import gzip
@@ -22,7 +25,7 @@ import re
 from asyncio.events import AbstractEventLoop
 from enum import Enum
 
-from typing import Dict
+from typing import Dict, Tuple
 from http.client import HTTPResponse
 from urllib.request import HTTPPasswordMgrWithDefaultRealm, HTTPBasicAuthHandler, Request, build_opener
 from urllib.parse import urlencode
@@ -99,7 +102,7 @@ class CURLResponse(object):
       raise TypeError("Stream content could be obtained only via raw property")
 
   @property
-  def raw(self):
+  def raw(self) -> str or HTTPResponse:
     """
     :return: Raw content of the response
     """
@@ -119,7 +122,7 @@ class CURLResponse(object):
 
 
 class CURLAuth(object):
-  def __init__(self, user, password, force=False, headers=None):
+  def __init__(self, user: str, password: str, force: bool = False, headers: dict = None):
     """
     Create Authorization Object
 
@@ -127,11 +130,6 @@ class CURLAuth(object):
     :param password: Password
     :param force: Generate HTTP Auth headers (skip 401 HTTP Response challenge)
     :param headers: Send additional headers during authorization
-
-    :column_type user str
-    :column_type password str
-    :column_type force bool
-    :column_type headers dict
     """
     self._user = user
     self._password = password
@@ -139,19 +137,19 @@ class CURLAuth(object):
     self._headers = headers
 
   @property
-  def user(self):
+  def user(self) -> str:
     return self._user
 
   @property
-  def password(self):
+  def password(self) -> str:
     return self._password
 
   @property
-  def force(self):
+  def force(self) -> bool:
     return self._force
 
   @property
-  def headers(self):
+  def headers(self) -> Dict[str, str]:
     if not self._force:
       return self._headers
     else:
@@ -160,27 +158,19 @@ class CURLAuth(object):
       ret_temp.update(self.get_auth_header())
       return ret_temp
 
-  def get_auth_header(self):
-    token = "%s:%s" % (self.user, self.password)
-    if sys.version_info.major == 3:
-      token = base64.encodebytes(bytes(token, encoding='utf8')).decode("utf-8")
-    else:
-      token = base64.encodestring(token)
-
-    return {
-      "Authorization": "Basic %s" % token.replace('\n', '')
-    }
+  def get_auth_header(self) -> Dict[str, str]:
+    token = base64.encodebytes(bytes(f"{self.user}:{self.password}", encoding='utf8'))\
+      .decode("utf-8")\
+      .replace('\n', '')
+    return {"Authorization": f"Basic {token}"}
 
 
 # ToDo: refactor this part
-def __encode_str(data):
-  if sys.version_info.major == 3:
-    return bytes(data, encoding='utf8')
-  else:
-    return bytes(data)
+def __encode_str(data) -> bytes:
+  return bytes(data, encoding='utf8')
 
 
-def __detect_str_type(data):
+def __detect_str_type(data) -> str:
   """
   :column_type str
   :rtype str
@@ -192,14 +182,14 @@ def __detect_str_type(data):
     return "plain/text"
 
 
-def __parse_content(data):
+def __parse_content(data) -> Tuple[bytes, Dict[str, str]]:
   if isinstance(data, dict) or isinstance(data, list) or isinstance(data, set) or isinstance(data, tuple):
     response_data = __encode_str(json.dumps(data))
     response_headers = {"Content-Type": "application/json; charset=UTF-8"}
   elif type(data) is str:
     response_data = __encode_str(data)
     response_headers = {
-      "Content-Type": "%s; charset=UTF-8" % __detect_str_type(data)
+      "Content-Type": f"{__detect_str_type(data)}; charset=UTF-8"
     }
   else:
     response_data = data
@@ -212,10 +202,10 @@ async def curl_async(loop: AbstractEventLoop, url: str, params: Dict[str, str] =
                      req_type: CurlRequestType = CurlRequestType.GET, data: str or bytes or dict = None,
                      headers: Dict[str, str] = None, timeout: int = None, use_gzip: bool = True,
                      use_stream: bool = False) -> CURLResponse:
-    return await loop.run_in_executor(
-      None,
-      lambda: curl(url, params, auth, req_type, data, headers, timeout, use_gzip, use_stream)
-    )
+  return await loop.run_in_executor(
+    None,
+    lambda: curl(url, params, auth, req_type, data, headers, timeout, use_gzip, use_stream)
+  )
 
 
 def curl(url: str, params: Dict[str, str] = None, auth: CURLAuth = None,

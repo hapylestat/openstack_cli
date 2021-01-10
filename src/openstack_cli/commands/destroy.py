@@ -15,13 +15,13 @@
 
 from openstack_cli.core.output import StatusOutput, Console
 from openstack_cli.modules.openstack import OpenStack, OpenStackVMInfo, ServerPowerState
-from openstack_cli.modules.config import Configuration
-from openstack_cli.modules.discovery import CommandMetaInfo
+from openstack_cli.core.config import Configuration
+from openstack_cli.modules.apputils.discovery import CommandMetaInfo
 
 
-__module__ = CommandMetaInfo("destroy")
-__args__ = __module__.get_arguments_builder() \
-  .add_default_argument("name", str, "name of the cluster or vm")
+__module__ = CommandMetaInfo("destroy", item_help="Destroys all VMs that belong to a specific cluster")
+__args__ = __module__.arg_builder \
+  .add_default_argument("name", str, "Name of the cluster or vm")
 
 
 def __init__(conf: Configuration, name: str):

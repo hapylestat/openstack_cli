@@ -15,7 +15,7 @@
 
 from enum import Enum
 from typing import List, Dict
-from openstack_cli.modules.json2obj import SerializableObject
+from openstack_cli.modules.apputils.json2obj import SerializableObject
 
 
 class Links(SerializableObject):
@@ -167,6 +167,11 @@ class DiskImageLocation(SerializableObject):
 
 
 class DiskImageInfo(SerializableObject):
+  __aliases__ = {
+    "owner_specified_shade_sha256": "owner_specified.shade.sha256",
+    "owner_specified_shade_object": "owner_specified.shade.object",
+    "owner_specified_shade_md5": "owner_specified.shade.md5"
+  }
   status: str = None
   name: str = None
   tags: List[str] = []
@@ -212,6 +217,7 @@ class DiskImageInfo(SerializableObject):
   hw_qemu_guest_agent: str = None
   img_config_drive: str = None
   os_require_quiesce: str = None
+  clean_attempts: str = None
 
 
 class DiskImages(SerializableObject):
@@ -227,6 +233,11 @@ class SecurityGroupItem(SerializableObject):
 
 
 class ComputeServerAddressInfo(SerializableObject):
+  __aliases__ = {
+    "OS_EXT_IPS_type": "OS-EXT-IPS:type",
+    "OS_EXT_IPS_MAC_mac_addr": "OS-EXT-IPS-MAC:mac_addr"
+  }
+
   OS_EXT_IPS_MAC_mac_addr: str = None
   version: int = 0
   addr: str = None
@@ -246,6 +257,16 @@ class ComputeServerFault(SerializableObject):
 
 
 class ComputeServerInfo(SerializableObject):
+  __aliases__ = {
+    "OS_EXT_STS_task_state": "OS-EXT-STS:task_state",
+    "OS_EXT_STS_vm_state": "OS-EXT-STS:vm_state",
+    "OS_SRV_USG_launched_at": "OS-SRV-USG:launched_at",
+    "OS_DCF_diskConfig": "OS-DCF:diskConfig",
+    "OS_EXT_STS_power_state": "OS-EXT-STS:power_state",
+    "OS_EXT_AZ_availability_zone": "OS-EXT-AZ:availability_zone",
+    "OS_SRV_USG_terminated_at": "OS-SRV-USG:terminated_at",
+    "os_extended_volumes_volumes_attached": "os-extended-volumes:volumes_attached"
+  }
   OS_EXT_STS_task_state: str = None
   OS_EXT_STS_vm_state: str = None
   OS_SRV_USG_launched_at: str = None
@@ -285,6 +306,11 @@ class ComputeServers(SerializableObject):
 
 
 class ComputeFlavorItem(SerializableObject):
+  __aliases__ = {
+    "OS_FLV_DISABLED_disabled": "OS-FLV-DISABLED:disabled",
+    "os_flavor_access_is_public": "os-flavor-access:is_public",
+    "OS_FLV_EXT_DATA_ephemeral": "OS-FLV-EXT-DATA:ephemeral"
+  }
   name: str = None
   ram: int = 0
   vcpus: int = 0
@@ -343,6 +369,9 @@ class Subnets(SerializableObject):
 
 
 class NetworkItem(SerializableObject):
+  __aliases__ = {
+    "router_external": "router:external"
+  }
   status: str = None
   router_external: bool = False
   availability_zone_hints: List[object] = []
@@ -513,6 +542,10 @@ class VMKeypairItemValue(SerializableObject):
   deleted_at: str = ""
   type: str = ""
   id: int = 0
+
+  def is_full_pair(self) -> bool:
+    return self.public_key is not None and self.private_key is not None\
+           and len(self.public_key) > 0 and len(self.private_key)
 
   def __hash__(self):
     return hash((self.name, self.public_key))

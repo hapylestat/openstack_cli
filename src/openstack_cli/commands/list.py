@@ -18,16 +18,16 @@ from typing import List, Dict
 
 from openstack_cli.core.output import TableOutput, TableColumn, TableColumnPosition
 
-from openstack_cli.core.colors import Colors, Symbols
-from openstack_cli.modules.config import Configuration
-from openstack_cli.modules.discovery import CommandMetaInfo
+from openstack_cli.modules.apputils.terminal.colors import Colors, Symbols
+from openstack_cli.core.config import Configuration
+from openstack_cli.modules.apputils.discovery import CommandMetaInfo
 
 from openstack_cli.modules.openstack import OpenStack
 from openstack_cli.modules.openstack.objects import ServerPowerState, OpenStackVMInfo
 
-__module__ = CommandMetaInfo("list")
-__args__ = __module__.get_arguments_builder()\
-  .add_default_argument("search_pattern", str, "search query", default="")
+__module__ = CommandMetaInfo("list", "Shows information about available clusters")
+__args__ = __module__.arg_builder\
+  .add_default_argument("search_pattern", str, "Search query", default="")
 
 
 def get_lifetime(timestamp: datetime):

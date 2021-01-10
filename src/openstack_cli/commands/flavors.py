@@ -15,11 +15,11 @@
 
 from openstack_cli.modules.openstack import OpenStack
 from openstack_cli.core.output import TableOutput, TableColumn, TableSizeColumn, Console
-from openstack_cli.modules.config import Configuration
-from openstack_cli.modules.discovery import CommandMetaInfo
+from openstack_cli.core.config import Configuration
+from openstack_cli.modules.apputils.discovery import CommandMetaInfo
 
-__module__ = CommandMetaInfo("flavors", "Display available VM configurations")
-__args__ = __module__.get_arguments_builder()\
+__module__ = CommandMetaInfo("flavors", "Display available VM resource configurations")
+__args__ = __module__.arg_builder\
   .add_default_argument("image_name", str, "Image name (alias)", default="")\
   .add_argument("sort_by_name", bool, "Sort the list by name", alias="by-name", default=False)\
   .add_argument("all", bool, "Show all flavors", default=False)

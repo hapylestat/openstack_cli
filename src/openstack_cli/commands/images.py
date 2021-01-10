@@ -16,15 +16,15 @@
 
 from openstack_cli.core.output import TableOutput, TableColumn, TableSizeColumn
 from openstack_cli.modules.openstack import OpenStack
-from openstack_cli.modules.config import Configuration
-from openstack_cli.modules.discovery import CommandMetaInfo
+from openstack_cli.core.config import Configuration
+from openstack_cli.modules.apputils.discovery import CommandMetaInfo
 
 
-__module__ = CommandMetaInfo("images")
-__args__ = __module__.get_arguments_builder() \
+__module__ = CommandMetaInfo("images", item_help="Display available VM Images")
+__args__ = __module__.arg_builder\
   .add_argument("all", bool, "Display all available images", default=False)\
   .add_argument("snapshots", bool, "Display only snapshots", default=False)\
-  .add_default_argument("search_pattern", str, "search query", default="")
+  .add_default_argument("search_pattern", str, "Search query", default="")
 
 
 def __init__(conf: Configuration, search_pattern: str, snapshots: bool, all: bool):

@@ -16,11 +16,16 @@
 
 import os
 from openstack_cli import commands
-from openstack_cli.modules.config import Configuration
+from openstack_cli.core.config import Configuration
+from openstack_cli.core.updates import upgrade_manager, import_upgrade_packs
 
 
 def main_entry():
-  conf: Configuration = Configuration()
+
+  conf: Configuration = Configuration(upgrade_manager=upgrade_manager)
+  if upgrade_manager.upgrade_required(conf):
+    import_upgrade_packs()
+
   is_debug: bool = "debug" in commands.discovery.kwargs_name
   if is_debug:
     os.environ["API_DEBUG"] = "True"

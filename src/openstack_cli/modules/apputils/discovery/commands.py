@@ -1,29 +1,25 @@
-# Licensed to the Apache Software Foundation (ASF) under one or more
-# contributor license agreements.  See the NOTICE file distributed with
-# this work for additional information regarding copyright ownership.
-# The ASF licenses this file to You under the Apache License, Version 2.0
-# (the "License"); you may not use this file except in compliance with
-# the License.  You may obtain a copy of the License at
+#  Licensed to the Apache Software Foundation (ASF) under one or more
+#  contributor license agreements.  See the NOTICE file distributed with
+#  this work for additional information regarding copyright ownership.
+#  The ASF licenses this file to You under the Apache License, Version 2.0
+#  (the "License"); you may not use this file except in compliance with
+#  the License.  You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#      http://www.apache.org/licenses/LICENSE-2.0
 #
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
-# =========================================================================
-# The library is a part of AppUtils library
-# GitHub: https://github.com/hapylestat/apputils
-# Contacts: hapy.lestat@gmail.com
-# =========================================================================
+#  Unless required by applicable law or agreed to in writing, software
+#  distributed under the License is distributed on an "AS IS" BASIS,
+#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#  See the License for the specific language governing permissions and
+#  limitations under the License.
+#
+#  Github: https://github.com/hapylestat/apputils
+#
+#
 
 import asyncio
 from collections import OrderedDict
-from types import FunctionType
-from typing import Dict, List
-
+from typing import Dict, Callable
 
 
 class CommandArgumentException(Exception):
@@ -53,12 +49,16 @@ class CommandArgumentItem(object):
     self.default = default
     self.alias = alias
 
+  @property
+  def has_default(self):
+    return self.default is not None
+
 
 class CommandArgumentsBuilder:
   def __init__(self):
     self._args: Dict[str, CommandArgumentItem] = {}
     self._alias_args: Dict[str, CommandArgumentItem] = {}
-    self._default_args: List[CommandArgumentItem] = []
+    self._default_args: Dict[str, CommandArgumentItem] = OrderedDict()
     self.__allowed_default_types = [int, str, float, list]
     self.__allowed_types = self.__allowed_default_types + [bool]
     self.__is_default_arg_flag_used = False
@@ -104,12 +104,11 @@ class CommandArgumentsBuilder:
 
   @property
   def default_arguments(self) -> Dict[str, CommandArgumentItem]:
-    d = OrderedDict()
+    return self._default_args
 
-    for arg in self._default_args:
-      d.update({arg.name: arg})
-
-    return d
+  @property
+  def all_arguments(self) -> Dict[str, CommandArgumentItem]:
+    return {**self._default_args, **self._alias_args}
 
   def add_default_argument(self, name: str, value_type: type, item_help: str, default: object = None):
     """
@@ -127,7 +126,7 @@ class CommandArgumentsBuilder:
       if not isinstance(default, value_type):
         raise CommandArgumentException("Invalid default type for argument".format(name))
 
-    self._default_args.append(CommandArgumentItem(name, value_type, item_help, default=default))
+    self._default_args.update({name: CommandArgumentItem(name, value_type, item_help, default=default)})
     return self
 
   @property
@@ -135,7 +134,7 @@ class CommandArgumentsBuilder:
     return self.__is_default_arg_flag_used
 
   def get_default_argument(self, index: int) -> CommandArgumentItem:
-    return self._default_args[index]
+    return list(self._default_args.values())[index]
 
 
 class CommandMetaInfo(object):
@@ -165,7 +164,8 @@ class CommandMetaInfo(object):
   def default_arguments(self):
     return self._arguments.default_arguments
 
-  def get_arguments_builder(self) -> CommandArgumentsBuilder:
+  @property
+  def arg_builder(self) -> CommandArgumentsBuilder:
     return self._arguments
 
   def __convert_value_to_type(self, value: str, _type: type):
@@ -246,11 +246,11 @@ class CommandMetaInfo(object):
 
 
 class CommandModule(object):
-  def __init__(self, meta_info: CommandMetaInfo, classpath: str, entry_point: FunctionType):
+  def __init__(self, meta_info: CommandMetaInfo, classpath: str, entry_point: Callable):
     self.__name = meta_info.name
     self.__classpath = classpath
     self.__meta_info = meta_info
-    self.__entry_point: FunctionType = entry_point
+    self.__entry_point: Callable = entry_point
     self.__args = None
 
   def set_argument(self, args: list, kwargs: dict, injected_args: set = None, fail_on_unknown=False):
@@ -349,3 +349,8 @@ class CommandModules(object):
         meta_info=meta_info,
         entry_point=m_dict[self.__entry_point]
       )
+
+  def inject(self, module: CommandModule):
+    if not module:
+      return
+    self.__modules[module.meta_info.name] = module

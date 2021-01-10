@@ -1,0 +1,7 @@
+src/openstack_cli/modules
+config
+curl
+discovery
+json2obj
+progressbar
+terminal
