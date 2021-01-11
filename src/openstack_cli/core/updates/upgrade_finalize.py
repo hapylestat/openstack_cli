@@ -12,13 +12,17 @@
 #  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
+from openstack_cli.commands.version import get_current_version
+from openstack_cli.core import Configuration
+from openstack_cli.modules.apputils.config.upgrades import UpgradeCatalog, upgrade
 
 
-from . import versions
-from ...modules.apputils.config.upgrades import UpgradeManager
+@upgrade(version=999.0)
+class FinalizeUpgrade(UpgradeCatalog):
 
-upgrade_manager = UpgradeManager()
-
-
-def import_upgrade_packs():
-  from . import upgrade_catalog_11, upgrade_finalize
+  def __call__(self, *args, **kwargs):
+    assert isinstance(self._conf, Configuration)
+    conf: Configuration = self._conf
+    version: float = get_current_version().version
+    print(f"Complete version update to {version}")
+    conf.version = version

@@ -74,7 +74,7 @@ class Configuration(BaseConfiguration):
 
     k = self._storage.get_property(self._keys_table, name)
     if not k.name:
-      raise KeyError(f"Key with name '{name}' ot found")
+      raise KeyError(f"Key with name '{name}' not found")
 
     return VMKeypairItemValue(serialized_obj=k.value)
 

@@ -545,7 +545,7 @@ class VMKeypairItemValue(SerializableObject):
 
   def is_full_pair(self) -> bool:
     return self.public_key is not None and self.private_key is not None\
-           and len(self.public_key) > 0 and len(self.private_key)
+           and len(self.public_key) > 0 and len(self.private_key) > 0
 
   def __hash__(self):
     return hash((self.name, self.public_key))

@@ -17,7 +17,7 @@ from openstack_cli.commands.networks import print_networks
 from openstack_cli.commands.conf import _keys_del, _keys_create
 from openstack_cli.core import Configuration
 from openstack_cli.core.output import TableOutput, TableColumn, Console, StatusOutput
-from openstack_cli.modules.config.upgrades import UpgradeCatalog, upgrade
+from openstack_cli.modules.apputils.config.upgrades import UpgradeCatalog, upgrade
 from openstack_cli.modules.openstack import OpenStack, AuthRequestType
 from openstack_cli.modules.openstack.objects import VMProject
 
@@ -85,11 +85,29 @@ class UpgradeCatalog11(UpgradeCatalog):
       conf.default_vm_password = _p
 
     _default_keypair_name = "default"
-    if not conf.get_key(_default_keypair_name).is_full_pair():
-      _existing_key = osvm.get_keypair(_default_keypair_name)
-      if _existing_key:
-        print(f"Keypair with name '{_default_keypair_name}' already exist, need to be removed")
-        _keys_del(conf, osvm, _default_keypair_name, True)
+    keys = conf.get_keys()
+    srv_keys = osvm.get_keypairs(no_cache=True)
+    _is_srv_key = False
+    _is_cfg_key = False
+    for srv_key in srv_keys:
+      if srv_key.name == _default_keypair_name:
+        _is_srv_key = True
+        break
 
+    for cfg_key in keys:
+      if cfg_key.name == _default_keypair_name:
+        _is_cfg_key = True
+        break
+
+    if _is_cfg_key and not _is_srv_key:
+      print(f"Purging  '{_default_keypair_name}' key from configuration")
+      conf.delete_key(_default_keypair_name)
+      _is_cfg_key = False
+
+    if not _is_cfg_key and not _is_srv_key:
+      print(f"Creating new '{_default_keypair_name}' keypair..")
       _keys_create(conf, osvm, _default_keypair_name)
       print(f"Key '{_default_keypair_name}' could be exported using command 'conf keys export {_default_keypair_name}'")
+
+    if not _is_cfg_key and _is_srv_key:
+      print(f"Public key '{_default_keypair_name}' would be re-synced locally, please add private key or re-generate new default key")

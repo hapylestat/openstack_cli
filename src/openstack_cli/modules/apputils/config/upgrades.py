@@ -73,7 +73,7 @@ class UpgradeManager(object):
     return answer == "y" or answer == "yes"
 
   def init_config(self, conf: BaseConfiguration, storage: SQLStorage):
-    use_master_password: bool =  self.__ask_question("Secure configuration with master password (y/n): ")
+    use_master_password: bool = self.__ask_question("Secure configuration with master password (y/n): ")
     if use_master_password:
       store_encryption_key: bool = self.__ask_question("Cache encryption key on disk (y/n): ")
     else:  # if not master key is used, default one would be generated anyway

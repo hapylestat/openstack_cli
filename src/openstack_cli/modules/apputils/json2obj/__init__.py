@@ -146,6 +146,7 @@ A number of errors happen:
     is_generic = '__origin__' in schema.__dict__
     _type = schema.__dict__['__origin__'] if is_generic else schema
     schema_args = list(get_args(schema)) if is_generic else [] if _type is list else [schema]
+    schema_len = len(schema_args)
     property_type = schema_args[0] if schema_args else None
 
     if property_type in (int, float, complex) and isinstance(property_value, str) and property_value == "":
@@ -166,7 +167,7 @@ A number of errors happen:
     if _type is list:
       return [property_type(i) for i in property_value] if property_type else property_value
     elif _type is dict:
-      return {k: self.__deserialize_transform(v, schema_args[1]) for k, v in property_value.items()}
+      return {k: self.__deserialize_transform(v, schema_args[1] if schema_len == 2 else type(v)) for k, v in property_value.items()}
     else:
       return _type(property_value) if _type and property_value is not None else property_value
 

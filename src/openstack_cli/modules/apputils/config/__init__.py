@@ -131,6 +131,18 @@ class BaseConfiguration(object):
 
     return p.value
 
+  @property
+  def version(self) -> float:
+    p = self._storage.get_property("general", "db_version", StorageProperty(name="db_version", value="0.0"))
+    try:
+      return float(p.value)
+    except ValueError:
+      return 0.0
+
+  @version.setter
+  def version(self, version: float):
+    self._storage.set_property("general", StorageProperty(name="db_version", value=str(version)))
+
   def set_cache(self, clazz: ClassVar, v: str or dict):
     self._storage.set_text_property(self.__cache_table, clazz.__name__, v, encrypted=True)
 
