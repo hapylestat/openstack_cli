@@ -13,6 +13,7 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
+import os
 import json
 from typing import List
 
@@ -136,6 +137,14 @@ class Configuration(BaseConfiguration):
     self._storage.set_text_property(self._options_table, "auth_token", value, True)
 
   @property
+  def user_id(self):
+    return self._storage.get_property(self._options_table, "user_id").value
+
+  @user_id.setter
+  def user_id(self, value: str):
+    self._storage.set_text_property(self._options_table, "user_id", value, encrypted=True)
+
+  @property
   def default_vm_password(self):
     _pass = self._storage.get_property(self._options_table, "default_vm_password").value
     return _pass if _pass else "qwerty"
@@ -166,3 +175,7 @@ class Configuration(BaseConfiguration):
   @property
   def supported_os_names(self) -> List[str]:
     return ["sles", "rhel", "debian", "ubuntu", "centos", "opensuse"]
+
+  @property
+  def local_key_dir(self):
+    return os.path.join(self._storage.configuration_dir, "keys")

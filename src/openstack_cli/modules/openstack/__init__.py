@@ -146,6 +146,7 @@ class OpenStack(object):
 
     l_resp = LoginResponse(serialized_obj=r.content)
     self.__endpoints__ = OpenStackEndpoints(self._conf, l_resp)
+    self._conf.user_id = l_resp.token.user.id
     return True
 
   def __auth(self, _type: AuthRequestType = AuthRequestType.SCOPED) -> bool:
@@ -180,6 +181,8 @@ class OpenStack(object):
     l_resp = LoginResponse(serialized_obj=r.from_json())
     if _type == AuthRequestType.UNSCOPED:
       l_resp.token = Token(catalog=[])
+    else:
+      self._conf.user_id = l_resp.token.user.id
 
     self.__endpoints__ = OpenStackEndpoints(self._conf, l_resp)
 
@@ -611,6 +614,7 @@ class OpenStack(object):
                             sort: bool = False,
                             filter_func: Callable[[OpenStackVMInfo], bool] = None,
                             no_cache: bool = False,
+                            only_owned: bool = False,
                             ) -> Dict[str, List[OpenStackVMInfo]]:
     """
     :param search_pattern: vm search pattern list
@@ -619,6 +623,7 @@ class OpenStack(object):
     :param filter_func: if return true - item would be filtered, false not
     """
     _servers: Dict[str, List[OpenStackVMInfo]] = {}
+    user_id = self._conf.user_id
     # if no cached queries available, execute limited query
     if no_cache or self.__get_local_cache(LocalCacheType.SERVERS) is None:
       servers = self.get_servers(arguments={
@@ -627,6 +632,9 @@ class OpenStack(object):
 
       for server in servers:
         if filter_func and filter_func(server):
+          continue
+
+        if only_owned and server.owner_id != user_id:
           continue
 
         if server.cluster_name not in _servers:
@@ -640,6 +648,9 @@ class OpenStack(object):
           continue
 
         if filter_func and filter_func(server):
+          continue
+
+        if only_owned and server.owner_id != user_id:
           continue
 
         if server.cluster_name not in _servers:

@@ -24,12 +24,13 @@ from openstack_cli.modules.openstack import OpenStack
 
 __module__ = CommandMetaInfo("info", "Shows the detailed information about requested VMs")
 __args__ = __module__.arg_builder\
-  .add_default_argument("search_pattern", str, "Search query", default="")
+  .add_default_argument("search_pattern", str, "Search query", default="") \
+  .add_argument("own", bool, "Display only owned by user items", default=False)
 
 from openstack_cli.modules.openstack.objects import ServerPowerState
 
 
-def __init__(conf: Configuration, search_pattern: str, debug: bool):
+def __init__(conf: Configuration, search_pattern: str, debug: bool, own: bool):
   __run_ico = Symbols.PLAY.green()
   __pause_ico = Symbols.PAUSE.yellow()
   __stop_ico = Symbols.STOP.red()
@@ -39,7 +40,7 @@ def __init__(conf: Configuration, search_pattern: str, debug: bool):
   }
 
   ostack = OpenStack(conf, debug=debug)
-  clusters = ostack.get_server_by_cluster(search_pattern=search_pattern, sort=True)
+  clusters = ostack.get_server_by_cluster(search_pattern=search_pattern, sort=True, only_owned=own)
   max_fqdn_len = ostack.servers.max_host_len + ostack.servers.max_domain_len + 5
 
   to = TableOutput(

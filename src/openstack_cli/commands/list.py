@@ -27,7 +27,8 @@ from openstack_cli.modules.openstack.objects import ServerPowerState, OpenStackV
 
 __module__ = CommandMetaInfo("list", "Shows information about available clusters")
 __args__ = __module__.arg_builder\
-  .add_default_argument("search_pattern", str, "Search query", default="")
+  .add_default_argument("search_pattern", str, "Search query", default="")\
+  .add_argument("own", bool, "Display only owned by user items", default=False)
 
 
 def get_lifetime(timestamp: datetime):
@@ -75,9 +76,9 @@ def print_cluster(servers: Dict[str, List[OpenStackVMInfo]]):
     )
 
 
-def __init__(conf: Configuration, search_pattern: str):
+def __init__(conf: Configuration, search_pattern: str, own: bool):
   ostack = OpenStack(conf)
-  clusters = ostack.get_server_by_cluster(search_pattern=search_pattern, sort=True)
+  clusters = ostack.get_server_by_cluster(search_pattern=search_pattern, sort=True, only_owned=own)
 
   if search_pattern and len(clusters) == 0:
     print(f"Query '{search_pattern}' returned no match")
