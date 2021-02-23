@@ -45,6 +45,8 @@ def main_entry():
       "conf": conf,
       "debug": is_debug
     })
+  except KeyboardInterrupt:
+    print("Cancelled by user...")
   except Exception as e:
     if is_debug:
       raise e

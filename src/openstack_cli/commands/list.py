@@ -16,7 +16,7 @@
 from datetime import datetime
 from typing import List, Dict
 
-from openstack_cli.core.output import TableOutput, TableColumn, TableColumnPosition
+from openstack_cli.modules.apputils.terminal import TableOutput, TableColumn
 
 from openstack_cli.modules.apputils.terminal.colors import Colors, Symbols
 from openstack_cli.core.config import Configuration

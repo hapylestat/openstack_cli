@@ -12,9 +12,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from typing import List
 
-from openstack_cli.core.output import TableOutput, TableColumn, TableColumnPosition
+from openstack_cli.modules.apputils.terminal import TableOutput, TableColumn, TableColumnPosition
 
 from openstack_cli.modules.apputils.terminal.colors import Colors
 from openstack_cli.core.config import Configuration

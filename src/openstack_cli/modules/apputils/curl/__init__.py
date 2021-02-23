@@ -22,10 +22,11 @@ import base64
 import gzip
 import zlib
 import re
+from datetime import datetime, timezone
 from asyncio.events import AbstractEventLoop
 from enum import Enum
 
-from typing import Dict, Tuple
+from typing import Dict, Tuple, List
 from http.client import HTTPResponse
 from urllib.request import HTTPPasswordMgrWithDefaultRealm, HTTPBasicAuthHandler, Request, build_opener
 from urllib.parse import urlencode
@@ -41,6 +42,56 @@ class CurlRequestType(Enum):
   POST = "POST"
   PUT = "PUT"
   DELETE = "DELETE"
+
+
+class CURLCookie(object):
+  def __init__(self, name: str, value: str):
+    """
+    :param name: Name of the cookie set by "set-cookie"
+    :param value: Cookie value with all params separated by ";"
+    """
+    self.__EXPIRE_TIME_PATTERN = "%a, %d %b %Y %H:%M:%S %Z"
+
+    self.__name: str = name
+    self.__options: Dict[str, str] = {}
+    self.__value: str = ""
+    self.__expiry_date: datetime or None = None
+    if not value:
+      return
+
+    options = value.split(";")
+    if options:
+      self.__value = options[0]
+
+    options = options[1:]
+    if options:
+      self.__options = {s[0]: s[1] for line in options if "=" in line and (s := line.split("="))}
+
+    if "expires" in self.__options:
+      # at the moment we always assume that time are in GMT+0/UTC
+      self.__expiry_date = datetime.strptime(self.__options["expires"], self.__EXPIRE_TIME_PATTERN)
+
+  @property
+  def name(self) -> str:
+    return self.__name
+
+  @property
+  def value(self) -> str:
+    return self.__value
+
+  @property
+  def options(self) -> Dict[str, str]:
+    return self.__options
+
+  @property
+  def is_expired(self) -> bool:
+    if self.__expiry_date:
+      return datetime.now(tz=timezone.utc) > self.__expiry_date
+
+    return False
+
+  def __str__(self):
+    return f"{self.__name}={self.__value}"
 
 
 class CURLResponse(object):
@@ -120,6 +171,13 @@ class CURLResponse(object):
     except ValueError:
       return None
 
+  def response_cookies(self) -> Dict[str, CURLCookie]:
+    return {
+      value[0]: CURLCookie(*value)
+      for item in self._headers.items()
+      if item[0].lower() == "set-cookie" and (value := item[1].split("=", maxsplit=1))
+    }
+
 
 class CURLAuth(object):
   def __init__(self, user: str, password: str, force: bool = False, headers: dict = None):
@@ -159,8 +217,8 @@ class CURLAuth(object):
       return ret_temp
 
   def get_auth_header(self) -> Dict[str, str]:
-    token = base64.encodebytes(bytes(f"{self.user}:{self.password}", encoding='utf8'))\
-      .decode("utf-8")\
+    token = base64.encodebytes(bytes(f"{self.user}:{self.password}", encoding='utf8')) \
+      .decode("utf-8") \
       .replace('\n', '')
     return {"Authorization": f"Basic {token}"}
 
@@ -200,21 +258,22 @@ def __parse_content(data) -> Tuple[bytes, Dict[str, str]]:
 
 async def curl_async(loop: AbstractEventLoop, url: str, params: Dict[str, str] = None, auth: CURLAuth = None,
                      req_type: CurlRequestType = CurlRequestType.GET, data: str or bytes or dict = None,
-                     headers: Dict[str, str] = None, timeout: int = None, use_gzip: bool = True,
-                     use_stream: bool = False) -> CURLResponse:
+                     headers: Dict[str, str] = None, cookies: List[CURLCookie] = None,
+                     timeout: int = None, use_gzip: bool = True, use_stream: bool = False) -> CURLResponse:
   return await loop.run_in_executor(
     None,
-    lambda: curl(url, params, auth, req_type, data, headers, timeout, use_gzip, use_stream)
+    lambda: curl(url, params, auth, req_type, data, headers, cookies, timeout, use_gzip, use_stream)
   )
 
 
 def curl(url: str, params: Dict[str, str] = None, auth: CURLAuth = None,
          req_type: CurlRequestType = CurlRequestType.GET, data: str or bytes or dict = None,
-         headers: Dict[str, str] = None, timeout: int = None, use_gzip: bool = True,
+         headers: Dict[str, str] = None, cookies: List[CURLCookie] = None, timeout: int = None, use_gzip: bool = True,
          use_stream: bool = False) -> CURLResponse:
   """
   Make request to web resource
 
+  :param cookies: list of cookies to send alongside with the request
   :param url: Url to endpoint
   :param params: list of params after "?"
   :param auth: authorization tokens
@@ -240,14 +299,13 @@ def curl(url: str, params: Dict[str, str] = None, auth: CURLAuth = None,
   req_args = {
     "headers": _headers
   }
-  # process content
+
   if req_type in post_req and data is not None:
     _data, __header = __parse_content(data)
     _headers.update(__header)
     _headers["Content-Length"] = len(_data)
     req_args["data"] = _data
 
-  # process gzip and deflate
   if use_gzip:
     if "Accept-Encoding" in _headers:
       if "gzip" not in _headers["Accept-Encoding"]:
@@ -265,6 +323,13 @@ def curl(url: str, params: Dict[str, str] = None, auth: CURLAuth = None,
 
   if headers is not None:
     _headers.update(headers)
+
+  if cookies and _headers:
+    temp_cookies: List[str] = list([str(cookie) for cookie in cookies if not cookie.is_expired])
+    if "cookie" in _headers:
+      temp_cookies.extend(_headers["cookie"].split("; "))
+
+    _headers["cookie"] = "; ".join(temp_cookies)
 
   director = build_opener(*handler_chain)
   req = Request(url, **req_args)

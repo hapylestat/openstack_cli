@@ -21,10 +21,11 @@ from openstack_cli.modules.apputils.discovery import CommandMetaInfo
 
 __module__ = CommandMetaInfo("start", "Starts requested VMs")
 __args__ = __module__.arg_builder\
-  .add_default_argument("name", str, "Name of the cluster or vm")
+  .add_default_argument("name", str, "Name of the cluster or vm") \
+  .add_argument("own", bool, "Display only own clusters", default=False)
 
 
-def __init__(conf: Configuration, name: str):
+def __init__(conf: Configuration, name: str, own: bool):
   ostack = OpenStack(conf)
 
   def __work_unit(value: OpenStackVMInfo) -> bool:
@@ -32,7 +33,12 @@ def __init__(conf: Configuration, name: str):
 
   so = StatusOutput(__work_unit, pool_size=5, additional_errors=ostack.last_errors)
 
-  servers = ostack.get_server_by_cluster(name, sort=True, filter_func=lambda x: x.state == ServerPowerState.running)
+  servers = ostack.get_server_by_cluster(
+    name,
+    sort=True,
+    filter_func=lambda x: x.state == ServerPowerState.running,
+    only_owned=own
+  )
 
   if not servers:
     print("No matches or already started")

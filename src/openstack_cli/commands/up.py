@@ -17,9 +17,10 @@ from time import sleep
 from openstack_cli.modules.apputils.terminal.colors import Colors
 
 from openstack_cli.commands.list import print_cluster
-from openstack_cli.core.output import StatusOutput, Console, TableOutput, TableColumn
+from openstack_cli.core.output import StatusOutput, Console
 from openstack_cli.modules.openstack import OpenStack, OpenStackVMInfo
 from openstack_cli.core.config import Configuration
+from openstack_cli.modules.apputils.terminal import TableOutput, TableColumn
 from openstack_cli.modules.apputils.discovery import CommandMetaInfo
 from openstack_cli.modules.openstack.objects import ServerState
 

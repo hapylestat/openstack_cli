@@ -19,11 +19,11 @@
 
 import os
 import sys
-from typing import List
+from typing import List, Iterable, Tuple
 
 from .arguments import CommandLineOptions
 from .commands import CommandMetaInfo, NoCommandException, CommandArgumentException, \
-  CommandModules, CommandModule
+  CommandModules, CommandModule, NotImplementedCommandException
 
 
 class CommandsDiscovery(object):
@@ -50,91 +50,52 @@ class CommandsDiscovery(object):
   def search_dir(self) -> str:
     return self._search_dir
 
+  @classmethod
+  def __collect_modules(cls, path: str, pattern: str = "") -> Iterable[Tuple[str, str, bool, str]]:
+    exclude_list = ("pyc", "__init__.py", "__pycache__")
+    for name in os.listdir(path):
+      full_name = os.path.join(path, name)
+      is_dir = os.path.isdir(full_name)
+      if name.endswith(exclude_list):
+        continue
+
+      if pattern and not name.endswith(pattern):
+        continue
+
+      # command, file/dir name, is_dir, full_name
+      yield name.partition(".")[0], name, is_dir, full_name
+
   def collect(self):
     """
     :rtype CommandsDiscovery
     """
-    exclude_list = ["pyc", "__init__.py", "__pycache__"]
-
-    for name in os.listdir(self._search_dir):
-      if name in exclude_list:
+    for command, name, is_dir, full_name in self.__collect_modules(self._search_dir, self._file_pattern):
+      if command in self._modules:
         continue
 
-      command_filename = name.partition(".")[0]
-      if command_filename not in self._modules and (
-        (self._file_pattern and self._file_pattern in name) or not self._file_pattern
-      ):
-        self._modules.add(self._module_class_path, command_filename)
-      else:
-        continue  # ignoring any non-matched file
+      sub_commands: List[str or Tuple[str, List[str]]] = []
+      if is_dir:  # currently supporting only 2 levels of sub-command
+        for _command, _name, _is_dir, _full_name in self.__collect_modules(full_name, self._file_pattern):
+          if _is_dir:
+            _sub = [item[0] for item in self.__collect_modules(_full_name, self._file_pattern) if not item[2]]
+            sub_commands.append((_command, _sub))
+          else:
+            sub_commands.append(_command)
+      self._modules.add(self._module_class_path, command, sub_commands)
 
     return self
 
   def __inject_help_command(self):
+    from .help import generate_help
     meta = CommandMetaInfo("help", "this command")
     meta.arg_builder \
-      .add_default_argument("subcommand", str, "name of the command to show help for", default="")
+      .add_default_argument("subcommand", str, "name of the command to show help for", default="@") \
+      .add_default_argument("subcommand_command", str, "Command name of the subcommand", default="@")
 
-    def _print_help(subcommand: str):
-      sys.stdout.write(self.generate_help(subcommand))
+    def _print_help(subcommand: str, subcommand_command: str):
+      sys.stdout.write(generate_help(self._modules, self._options, subcommand, subcommand_command))
 
-    self._modules.inject(CommandModule(meta, "discovery", _print_help))
-
-  def generate_help(self, subcommand: str = ""):
-    filename = self._options.filename
-    end_line = "\n"
-    help_str = f"Usage:{end_line}"
-
-    command_list = self._modules.commands if subcommand == "" else [subcommand]
-
-    for command in command_list:
-      cmd_meta: CommandMetaInfo = self._modules[command].meta_info
-
-      if not cmd_meta:
-        continue
-
-      args = []
-      arg_details = []
-      start_spacing: str = " " * 5
-      try:
-        max_arg_len: int = len(max(cmd_meta.arg_builder.all_arguments.keys(), key=len))
-      except ValueError:
-        max_arg_len: int = 0
-
-      def format_help_description(description: str) -> str:
-        if "\n" not in description:
-          return description
-        description_lines = description.split("\n")
-        new_description: List[str] = [description_lines[0]]
-        new_description += [f"{start_spacing}{' ' * (max_arg_len + 3)}{line}" for line in description_lines[1:]]
-        return "\n".join(new_description)
-
-      for key, value in cmd_meta.arg_builder.default_arguments.items():
-        additional_spacing = " " * (max_arg_len - len(key))
-        default_str = f"(Default: {value.default})" if value.default else ""
-        args.append(f"[{key}]" if value.has_default else key)
-        arg_details.append(f"{start_spacing}{key}{additional_spacing} - {format_help_description(value.item_help)} {default_str}")
-
-      for key, value in cmd_meta.arg_builder.arguments_by_alias.items():
-        additional_spacing = " " * (max_arg_len - len(key))
-        default_str = f"(Default: {value.default})" if value.default else ""
-        args.append(f"[--{key}]" if value.has_default else f"--{key}")
-        arg_details.append(f"{start_spacing}{key}{additional_spacing} - {format_help_description(value.item_help)} {default_str}")
-
-      help_str += """
- {filename} {cmd} {args}
-{cmd_help}
-
-{arg_details}
-        """.format(
-        filename=filename,
-        cmd=command,
-        args=" ".join(args),
-        cmd_help=f"{start_spacing}{cmd_meta.help}",
-        arg_details="\n".join(arg_details)
-      )
-
-    return help_str
+    self._modules.inject(CommandModule(meta, "discovery", "__internal__", _print_help))
 
   @property
   def command_name(self) -> str or None:
@@ -152,10 +113,24 @@ class CommandsDiscovery(object):
     if not self._options.args:
       raise NoCommandException(None, "No command passed, unable to continue")
 
-    command_name = self._options.args[0]
-    command: CommandModule = self._modules[command_name]
+    command: CommandModule = self._modules[self._options.args[0]]  # [command name]
+    command_args = self._options.args[1:]
+
+    while command_args:
+      if command_args[0] not in command.subcommand_names:
+        break
+      command_name = command_args[0]
+      command_args = command_args[1:]
+
+      command = command.get_subcommand(command_name)  # [command name] {subcommand}
+
+    if command.meta_info.default_sub_command and \
+       command.meta_info.default_sub_command in command.subcommand_names:
+
+      command = command.get_subcommand(command.meta_info.default_sub_command)  # [command name] {subcommand} {sub}
+
     inj_args = set(injected_args.keys()) if injected_args else set()
-    command.set_argument(self._options.args[1:], self._options.kwargs, inj_args, fail_on_unknown)
+    command.set_argument(command_args, self._options.kwargs, inj_args, fail_on_unknown)
 
     return command
 
@@ -173,15 +148,36 @@ class CommandsDiscovery(object):
     except CommandArgumentException as e:
       raise NoCommandException(None, f"Application arguments exception: {str(e)}\n")
 
+  def __get_modules_from_args(self) -> Tuple[str, str]:
+    args = self._options.args
+    if len(args) == 0:
+      return "", ""
+
+    cmd = self._modules.get_command_by_meta_name(args[0])
+    if cmd is None:
+      return "", ""
+
+    if len(args) == 1 or args[1] not in cmd.subcommand_names:
+      return cmd.name, ""
+
+    return cmd.name, args[1]
+
   def start_application(self, kwargs: dict = None):
+    from .help import generate_help
+
     # ToDO: add default command to be executed if no passed
     self.__inject_help_command()
     try:
       command = self._get_command(injected_args=kwargs, fail_on_unknown=True)
       command.execute(injected_args=kwargs)
+    except NotImplementedCommandException:
+      sys.stdout.write(generate_help(self._modules, self._options, *self.__get_modules_from_args()))
+      pass
     except NoCommandException as e:
       if e.command_name:
-        sys.stdout.write(self.generate_help())
+        sys.stdout.write(generate_help(self._modules, self._options))
+      else:
+        sys.stdout.write("No command provided, use 'help' to check the list of available commands")
       return
     except CommandArgumentException as e:
       sys.stdout.write(f"Application arguments exception: {str(e)}\n")

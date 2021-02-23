@@ -22,10 +22,11 @@ from openstack_cli.modules.apputils.discovery import CommandMetaInfo
 __module__ = CommandMetaInfo("reboot", item_help="Reboots the requested VMs")
 __args__ = __module__.arg_builder\
   .add_default_argument("name", str, "Name of the cluster or vm")\
-  .add_argument("hard", bool, "Hard reset the VM", default=False)
+  .add_argument("hard", bool, "Hard reset the VM", default=False) \
+  .add_argument("own", bool, "Display only own clusters", default=False)
 
 
-def __init__(conf: Configuration, name: str, hard: bool):
+def __init__(conf: Configuration, name: str, hard: bool, own: bool):
   ostack = OpenStack(conf)
 
   def __work_unit(value: OpenStackVMInfo) -> bool:
@@ -35,7 +36,8 @@ def __init__(conf: Configuration, name: str, hard: bool):
   servers = ostack.get_server_by_cluster(
     name,
     sort=True,
-    filter_func=lambda x: x.state in ServerPowerState.stop_states()
+    filter_func=lambda x: x.state in ServerPowerState.stop_states(),
+    only_owned=own
   )
 
   if not servers:

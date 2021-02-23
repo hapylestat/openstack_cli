@@ -14,7 +14,7 @@
 # limitations under the License.
 
 
-from openstack_cli.core.output import TableOutput, TableColumn
+from openstack_cli.modules.apputils.terminal import TableOutput, TableColumn
 
 from openstack_cli.modules.apputils.terminal.colors import Colors, Symbols
 from openstack_cli.core.config import Configuration

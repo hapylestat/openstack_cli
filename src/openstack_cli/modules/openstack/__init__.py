@@ -26,7 +26,6 @@ from json import JSONDecodeError
 from typing import Dict, List, Callable, Iterable, TypeVar
 
 from openstack_cli.modules.apputils.terminal.colors import Colors
-from openstack_cli.core.config import Configuration
 from openstack_cli.modules.apputils.curl import curl, CurlRequestType, CURLResponse
 from openstack_cli.modules.openstack.api_objects import ComputeLimits, VolumeV3Limits, DiskImages, \
   DiskImageInfo, ComputeServers, NetworkLimits, ComputeFlavors, ComputeFlavorItem, Networks, NetworkItem, Subnets, \
@@ -61,7 +60,10 @@ class LocalCacheType(Enum):
 
 class OpenStack(object):
 
-  def __init__(self, conf: Configuration, debug: bool = False):
+  def __init__(self, conf, debug: bool = False):
+    """
+    :type conf openstack_cli.core.config.Configuration
+    """
     self.__last_errors: List[str] = []
     self.__login_api = f"{conf.os_address}/v3"
     self._conf = conf

@@ -21,10 +21,11 @@ from openstack_cli.modules.apputils.discovery import CommandMetaInfo
 
 __module__ = CommandMetaInfo("stop", item_help="Stops requested VMs")
 __args__ = __module__.arg_builder\
-  .add_default_argument("name", str, "Name of the cluster or vm")
+  .add_default_argument("name", str, "Name of the cluster or vm") \
+  .add_argument("own", bool, "Display only own clusters", default=False)
 
 
-def __init__(conf: Configuration, name: str):
+def __init__(conf: Configuration, name: str, own: bool):
   ostack = OpenStack(conf)
 
   def __work_unit(value: OpenStackVMInfo) -> bool:
@@ -35,7 +36,8 @@ def __init__(conf: Configuration, name: str):
   servers = ostack.get_server_by_cluster(
     name,
     sort=True,
-    filter_func=lambda x: x.state in ServerPowerState.stop_states()
+    filter_func=lambda x: x.state in ServerPowerState.stop_states(),
+    only_owned=own
   )
   if Console.confirm_operation("stop", servers):
     flatten_servers = [server for server_pair in servers.values() for server in server_pair]

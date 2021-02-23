@@ -14,9 +14,10 @@
 #  limitations under the License.
 
 from openstack_cli.commands.networks import print_networks
-from openstack_cli.commands.conf import _keys_del, _keys_create
+from openstack_cli.commands.conf import _keys_create
 from openstack_cli.core import Configuration
-from openstack_cli.core.output import TableOutput, TableColumn, Console, StatusOutput
+from openstack_cli.modules.apputils.terminal import TableOutput, TableColumn
+from openstack_cli.core.output import Console, StatusOutput
 from openstack_cli.modules.apputils.config.upgrades import UpgradeCatalog, upgrade
 from openstack_cli.modules.openstack import OpenStack, AuthRequestType
 from openstack_cli.modules.openstack.objects import VMProject

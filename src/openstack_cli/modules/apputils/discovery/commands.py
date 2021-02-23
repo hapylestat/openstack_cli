@@ -17,9 +17,8 @@
 #
 #
 
-import asyncio
 from collections import OrderedDict
-from typing import Dict, Callable
+from typing import Dict, Callable, List, get_origin, Optional
 
 
 class CommandArgumentException(Exception):
@@ -34,6 +33,10 @@ class NoCommandException(Exception):
   @property
   def command_name(self):
     return self.__command_name
+
+
+class NotImplementedCommandException(Exception):
+  pass
 
 
 class CommandArgumentItem(object):
@@ -73,6 +76,10 @@ class CommandArgumentsBuilder:
 
     :rtype CommandArgumentsBuilder
     """
+    origin = get_origin(value_type)
+    if origin is not None:
+      value_type = origin
+
     if value_type and value_type not in self.__allowed_types:
       raise CommandArgumentException(f"Named argument couldn't have {value_type.__name__} type")
 
@@ -94,6 +101,14 @@ class CommandArgumentsBuilder:
     })
     return self
 
+  def merge(self, builder):
+    """
+    :type builder CommandArgumentsBuilder
+    """
+    self._alias_args.update(builder._alias_args)
+    self._args.update(builder._args)
+    self._default_args.update(builder._default_args)
+
   @property
   def arguments(self) -> Dict[str, CommandArgumentItem]:
     return self._args
@@ -114,6 +129,10 @@ class CommandArgumentsBuilder:
     """
     :rtype CommandArgumentsBuilder
     """
+    origin = get_origin(value_type)
+    if origin is not None:
+      value_type = origin
+
     if value_type not in self.__allowed_default_types:
       raise CommandArgumentException(f"Positional(default) argument could not have {value_type.__name__} type")
 
@@ -138,11 +157,12 @@ class CommandArgumentsBuilder:
 
 
 class CommandMetaInfo(object):
-  def __init__(self, name: str, item_help: str = "", **kwargs):
+  def __init__(self, name: str, item_help: str = "", default_sub_command: str = "", **kwargs):
     self._name = name
     self._arguments = CommandArgumentsBuilder()
     self._help = item_help
     self._kwargs = kwargs
+    self._default_sub_command = default_sub_command
 
   @property
   def options(self) -> dict:
@@ -157,6 +177,10 @@ class CommandMetaInfo(object):
     return self._help
 
   @property
+  def default_sub_command(self) -> str:
+    return self._default_sub_command
+
+  @property
   def arguments(self) -> dict:
     return self._arguments.arguments
 
@@ -168,7 +192,8 @@ class CommandMetaInfo(object):
   def arg_builder(self) -> CommandArgumentsBuilder:
     return self._arguments
 
-  def __convert_value_to_type(self, value: str, _type: type):
+  @classmethod
+  def __convert_value_to_type(cls, value: str, _type: type):
     if _type is list and isinstance(value, str):
       return value.split(",")
     elif _type is bool and len(value) == 0:
@@ -192,11 +217,12 @@ class CommandMetaInfo(object):
 
       raise CommandArgumentException(f"Command require {expected_length} positional argument(s), found {real_length}")
     elif self._arguments.has_optional_default_argument and argv \
-      and real_length < expected_length - default_args_count \
+      and real_length < expected_length - default_args_count\
       or (fail_on_unknown and real_length > expected_length):
 
       raise CommandArgumentException(
-        f"Command require {expected_length} or {expected_length - default_args_count} positional argument(s), found {real_length}")
+        f"Command require {expected_length} or {expected_length - default_args_count} positional argument(s),"
+        f" found {real_length}")
 
     for index in range(0, expected_length):
       arg_meta: CommandArgumentItem = default_arguments[index]
@@ -246,12 +272,21 @@ class CommandMetaInfo(object):
 
 
 class CommandModule(object):
-  def __init__(self, meta_info: CommandMetaInfo, classpath: str, entry_point: Callable):
+  def __init__(self, meta_info: CommandMetaInfo, classpath: str, import_name: str, entry_point: Callable, parent=None):
+    """
+    :type parent CommandModule
+    """
     self.__name = meta_info.name
     self.__classpath = classpath
+    self.__import_name = import_name
     self.__meta_info = meta_info
     self.__entry_point: Callable = entry_point
     self.__args = None
+    self.__sub_commands: Dict[str, CommandModule] = {}
+    self.__parent = parent
+
+    if parent:
+      self.__meta_info.arg_builder.merge(parent.__meta_info.arg_builder)
 
   def set_argument(self, args: list, kwargs: dict, injected_args: set = None, fail_on_unknown=False):
     if not injected_args:
@@ -263,11 +298,49 @@ class CommandModule(object):
     f_args = self.entry_point_args
 
     if len(f_args) - len(set(f_args) & injected_args) != len(set(args.keys()) & set(f_args)):
-      raise CommandArgumentException("Function \"{}\" from module {} doesn't implement all arguments in the signature".format(
-        self.__entry_point.__name__, self.__classpath
-      ))
-
+      raise CommandArgumentException("Function \"{}\" from module {} doesn't implement all arguments in the"
+                                     " signature or implements unknown definition".format(
+                                       self.__entry_point.__name__, self.__classpath
+                                     ))
     self.__args = args
+
+  def add_subcommand(self, cmds):
+    """
+    :type cmds List[CommandModule] or CommandModule
+    """
+    if not isinstance(cmds, list):
+      cmds = [cmds]
+
+    for cmd in cmds:
+      if cmd.name in self.__sub_commands:
+        continue
+
+      self.__sub_commands[cmd.name] = cmd
+
+  @property
+  def parent(self):
+    return self.__parent
+
+  @property
+  def subcommands(self):
+    """
+    :rtype List[CommandModule]
+    """
+    return list(self.__sub_commands.values())
+
+  @property
+  def subcommand_names(self) -> List[str]:
+    return list(self.__sub_commands.keys())
+
+  def get_subcommand(self, name: str):
+    """
+    :rtype CommandModule
+    """
+    return self.__sub_commands[name]
+
+  @property
+  def import_name(self):
+    return self.__import_name
 
   @property
   def name(self) -> str:
@@ -305,14 +378,31 @@ class CommandModule(object):
   def execute(self,  injected_args: dict = None):
     self.__entry_point(**self.__get_args(self.__args, injected_args))
 
-  @asyncio.coroutine
-  def execute_async(self, injected_args: dict = None):
-    yield from self.__entry_point(**self.__get_args(self.__args, injected_args))
+  async def execute_async(self, injected_args: dict = None):
+    await self.__entry_point(**self.__get_args(self.__args, injected_args))
+
+  def __str__(self):
+    return f"Module: {self.__import_name}, Meta: {self.meta_info.name}, Sub Commands: {len(self.__sub_commands)}"
 
 
 class CommandModules(object):
+  class CommandListView(object):
+    def __init__(self, lst: list):
+      self._l = lst
+      self._i = 0
+      self._len = len(lst)
+
+    def __next__(self):
+      if self._i < self._len:
+        try:
+          return self._l[self._i]
+        finally:
+          self._i += 1
+      else:
+        raise StopIteration()
+
   def __init__(self, entry_point: str):
-    self.__modules = {}
+    self.__modules: Dict[str, CommandModule] = {}
     self.__entry_point = entry_point
     self.__required_module_fields = {"__module__", entry_point}
     self.__req_module_fields_count = len(self.__required_module_fields)
@@ -329,26 +419,76 @@ class CommandModules(object):
   def __contains__(self, item: str):
     return item in self.__modules
 
-  def __iter__(self):
-    return self.__modules.items()
+  def __iter__(self) -> CommandListView:
+    return CommandModules.CommandListView(list(self.__modules.values()))
 
   @property
   def commands(self):
-    return self.__modules.keys()
+    return list(self.__modules.keys())
 
-  def add(self, classpath: str, command_filename: str):
-    m = __import__(f"{classpath}.{command_filename}", fromlist=classpath)
+  def get_command_by_meta_name(self, name: str) -> Optional[CommandModule]:
+    for cmd in self.__modules.values():
+      if cmd.meta_info.name == name:
+        return cmd
+
+    return None
+
+  def __create_command(self, classpath: str, cmd_filename: str,
+                       parent: CommandModule = None) -> Optional[CommandModule]:
+
+    m = __import__(f"{classpath}.{cmd_filename}", fromlist=classpath)
     m_dict = m.__dict__
     meta_info = m_dict["__module__"]
     if not isinstance(meta_info, CommandMetaInfo):
       return
 
     if self.__req_module_fields_count == len(self.__required_module_fields & set(m_dict.keys())):
-      self.__modules[meta_info.name] = CommandModule(
+      return CommandModule(
         classpath=m.__name__,
+        import_name=cmd_filename,
         meta_info=meta_info,
-        entry_point=m_dict[self.__entry_point]
+        entry_point=m_dict[self.__entry_point],
+        parent=parent
       )
+
+    return None
+
+  def add(self, classpath: str, command_filename: str, sub_commands: List[str] = ()):
+    # if command is an directory, we need to import <command>\__init__.py instead of folder
+    import_name = f"{command_filename}.__init__" if sub_commands else command_filename
+    command_module: CommandModule = self.__create_command(classpath, import_name)  # [base_command]
+
+    if command_module.name in self.commands:
+      prev_command: CommandModule = self.get_command_by_meta_name(command_module.meta_info.name)
+      if prev_command is None:
+        raise ValueError(f"Conflicting command definition for '{command_filename}'")
+      raise ValueError(f"""
+Conflicting command definitions detected:
+=========================================
+ Import 1 classpath: {prev_command.classpath} -> {prev_command.import_name} : #{prev_command.meta_info.name}
+ Import 2 classpath: {command_module.classpath} -> {command_module.import_name} : #{command_module.meta_info.name}
+""")
+
+    if sub_commands:
+      _sub_commands = []
+      for sub_command in sub_commands:
+        _class_path = f"{classpath}.{command_filename}"
+        _command_obj: Optional[CommandModule] = None
+        if isinstance(sub_command, tuple):  # [base_command] {sub_command} {sub_sub_command}
+          _name, _subcmds = sub_command
+          _command_obj = self.__create_command(_class_path, f"{_name}.__init__", command_module)
+          _command_obj.add_subcommand([
+            self.__create_command(f"{_class_path}.{_name}", _subcmd, _command_obj)
+            for _subcmd in _subcmds
+          ])
+        else:  # [base_command] {sub_command}
+          _command_obj = self.__create_command(_class_path, sub_command, command_module)
+
+        _sub_commands.append(_command_obj)
+
+      command_module.add_subcommand(_sub_commands)
+
+    self.__modules[command_module.meta_info.name] = command_module
 
   def inject(self, module: CommandModule):
     if not module:
