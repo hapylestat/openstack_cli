@@ -14,7 +14,7 @@
 #  limitations under the License.
 
 from openstack_cli.commands.networks import print_networks
-from openstack_cli.commands.conf import _keys_create
+from openstack_cli.commands.conf.keys.create import _create_key
 from openstack_cli.core import Configuration
 from openstack_cli.modules.apputils.terminal import TableOutput, TableColumn
 from openstack_cli.core.output import Console, StatusOutput
@@ -107,7 +107,7 @@ class UpgradeCatalog11(UpgradeCatalog):
 
     if not _is_cfg_key and not _is_srv_key:
       print(f"Creating new '{_default_keypair_name}' keypair..")
-      _keys_create(conf, osvm, _default_keypair_name)
+      _create_key(conf, osvm, _default_keypair_name)
       print(f"Key '{_default_keypair_name}' could be exported using command 'conf keys export {_default_keypair_name}'")
 
     if not _is_cfg_key and _is_srv_key:

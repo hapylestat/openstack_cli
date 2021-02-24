@@ -12,6 +12,7 @@
 #  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
+
 from openstack_cli.commands.version import get_current_version
 from openstack_cli.core import Configuration
 from openstack_cli.modules.apputils.config.upgrades import UpgradeCatalog, upgrade

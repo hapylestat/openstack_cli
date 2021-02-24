@@ -19,136 +19,31 @@ import signal
 import paramiko
 
 from socket import socket
-from enum import Enum
+
 from threading import Thread
 from typing import TextIO
 from openstack_cli.modules.apputils.terminal.get_terminal_size import get_terminal_size
+from openstack_cli.modules.apputils.terminal.getch import getch as _getch, FUNC_KEYS, NCODE_KEYS, VTKEYS
 
 
-def _find_getch():
-  try:                 # UNIX like
-    import termios
-  except ImportError:  # Windows
-    import msvcrt
-    import ctypes
-
-    kernel32 = ctypes.windll.kernel32
-    kernel32.SetConsoleMode(kernel32.GetStdHandle(-11), 7)
-    return msvcrt.getch
-
-  import sys, tty
-  def _getch():
-    fd = sys.stdin.fileno()
-    old_settings = termios.tcgetattr(fd)
-    try:
-      tty.setraw(fd)
-      ch = sys.stdin.read(1)
-    finally:
-      termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
-    return ch
-
-  return _getch
-
-_getch = _find_getch()
-
-LL = False
+F12MENU = False
 SIGINT = False
 
-
-def generate_ch_seq(arr):
-  return ''.join([chr(x) for x in arr])
-
-# check https://gist.github.com/hapylestat/1101cc1a5bde125cc5d56c6a401a4f35 tool for obtaining key sequences
-
-NCODE_F_KEYS = 0
-NCODE_SP_KEYS = 224
-
-class FKEYS(Enum): #NCODE_F_KEYS
-  F1 = 59
-  F2 = 60
-  F3 = 61
-  F4 = 62
-  F5 = 63
-  F6 = 64
-  F7 = 65
-  F8 = 66
-  F9 = 67
-  F10 = 68
-  F12 = 134
-
-class ARROWS(Enum): #NCODE_SP_KEYS
-  UP = 72
-  DOWN = 80
-  RIGHT = 77
-  LEFT = 75
-
-class KEYS(Enum): # NCODE_SP_KEYS
-  INSERT = 82
-  DELETE = 83
-  HOME = 71
-  END = 79
-  PAGEUP = 73
-  PAGEDOWN = 81
-
-class NCODE_KEYS(Enum):
-  TAB = 9
-  ENTER = 13
-  BACKSPACE = 8
-  ESC = 27
-
-
-fkeys = {
-  FKEYS.F1.value: generate_ch_seq([27, 79, 80]),  # F1
-  FKEYS.F2.value: generate_ch_seq([27, 79, 81]),  # F2
-  FKEYS.F3.value: generate_ch_seq([27, 79, 82]),  # F3
-  FKEYS.F4.value: generate_ch_seq([27, 79, 83]),  # F4
-  FKEYS.F5.value: generate_ch_seq([27, 91, 49, 53, 126]),  # F5
-  FKEYS.F6.value: generate_ch_seq([27, 91, 49, 55, 126]),  # F6
-  FKEYS.F7.value: generate_ch_seq([27, 91, 49, 56, 126]),  # F7
-  FKEYS.F8.value: generate_ch_seq([27, 91, 49, 57, 126]),  # F8
-  FKEYS.F9.value: generate_ch_seq([27, 91, 50, 48, 126]),  # F9
-  FKEYS.F10.value: generate_ch_seq([27, 91, 50, 49, 126])   # F10
-}
-
-# escape seq
-arrows = {
-  ARROWS.UP.value: "\033[A",  # up
-  ARROWS.DOWN.value: "\033[B",  # down
-  ARROWS.RIGHT.value: "\033[C",  # right
-  ARROWS.LEFT.value: "\033[D"   # left
-}
-
-# 224 code subspace
-nav_keys = {
-  KEYS.INSERT.value: generate_ch_seq([27, 91, 50, 126]),  # insert
-  KEYS.DELETE.value: generate_ch_seq([27, 91, 51, 126]),  # delete
-  KEYS.HOME.value: generate_ch_seq([27, 91, 72]),       # home
-  KEYS.END.value: generate_ch_seq([27, 91, 70]),       # end
-  KEYS.PAGEUP.value: generate_ch_seq([27, 91, 53, 126]),  # PageUp
-  KEYS.PAGEDOWN.value: generate_ch_seq([27, 91, 54, 126]),  # PageDown
-}
-
-"""
-Requirements:
-
-export TERM=xterm-noapp
-"""
-
-
-def _special_commands(channel: paramiko.Channel):
-  global LL
+def _f12_commands(channel: paramiko.Channel):
+  global F12MENU
   global SIGINT
-  _k = ord(_getch())
-  if _k == NCODE_SP_KEYS and ord(_getch()) == FKEYS.F12.value:
-    LL = not LL
-    print("\n Character code debugging is: {}".format(LL))
-    if LL:
+  _k = _getch()
+
+  if _k == FUNC_KEYS.F12.value:
+    F12MENU = not F12MENU
+    print(f"\n Character code debugging is: {F12MENU}")
+    if F12MENU:
       print("> ", end='', flush=True)
-  elif _k == NCODE_F_KEYS and ord(getch()) == FKEYS.F5.value:
+  elif _k == FUNC_KEYS.F5.value:
     channel.resize_pty(*get_terminal_size())
-  elif _k == 99:  # C:
+  elif _k == (99,):  # C:
     SIGINT = True
-  elif _k == 105: # I
+  elif _k == (105,): # I
     t: paramiko.Transport = channel.get_transport()
     sock: socket = t.sock
     localname, peername = sock.getsockname(), sock.getpeername()
@@ -167,9 +62,8 @@ Preffered:
   else:
     return chr(7)
 
-# check pynput code
 
-def getch(cmd: TextIO, channel: paramiko.Channel):
+def getch(channel: paramiko.Channel):
   global SIGINT
 
   if SIGINT:
@@ -177,50 +71,25 @@ def getch(cmd: TextIO, channel: paramiko.Channel):
     return chr(3)
 
   ch = _getch()
-  n = ord(ch)
-  nn = None
 
-  if n in (NCODE_F_KEYS, NCODE_SP_KEYS):  # some sequences return several codes
-    nn = ord(_getch())
-
-  if LL and not (n == NCODE_SP_KEYS and nn == FKEYS.F12.value):
-    if nn:
-      print("{} {} ".format(n, nn), end='', flush=True)
-    else:
-      print("{} ".format(n), end='', flush=True)
-
+  if F12MENU and ch != FUNC_KEYS.F12.value:
+    print(f"{ch} ", end='', flush=True)
     return
-  elif n == NCODE_SP_KEYS:  # next will come arrow keys
-    if nn in arrows:
-      return arrows[nn]
-
-    if nn in nav_keys:
-      return nav_keys[nn]
-
-    if nn == FKEYS.F12.value:  # F12  CUSTOM COMMANDS
-      return _special_commands(channel)
-  elif n == NCODE_F_KEYS:  # F1-F12
-    if nn in fkeys:
-       return fkeys[nn]
-  elif n == NCODE_KEYS.TAB.value:
+  elif ch == FUNC_KEYS.F12.value:
+    return _f12_commands(channel)
+  elif ch in VTKEYS:
+    return VTKEYS[ch]
+  elif ch == NCODE_KEYS.TAB.value:
     return "\t"
-  elif n in (NCODE_KEYS.ENTER.value, NCODE_KEYS.BACKSPACE.value, NCODE_KEYS.ESC.value):
+  elif ch in (NCODE_KEYS.ENTER.value, NCODE_KEYS.BACKSPACE.value, NCODE_KEYS.ESC.value):
     pass
-  # elif n < 32 or n > 177:
-  #   print("Unknown char! Char code: {}".format(n))
 
-
-  return ch
+  return "".join([chr(c) for c in ch])
 
 
 def _sigint(signum, frame):
   global SIGINT
   SIGINT = True
-
-
-def _sigwinch(*args):
-  print("EE:")
-  print(args)
 
 
 def __buffered_reader(stdread: paramiko.ChannelFile, stdwrite: TextIO):
@@ -242,7 +111,7 @@ def __buffered_reader(stdread: paramiko.ChannelFile, stdwrite: TextIO):
 def __input_handler(stdin: TextIO, rstdin: TextIO, channel: paramiko.Channel):
   global SIGINT
   while not SIGINT:
-    buff = getch(stdin, channel)
+    buff = getch(channel)
     if buff:
       if isinstance(buff, str):
         buff = buff.encode("UTF-8")

@@ -217,6 +217,10 @@ def __init__(conf: Configuration, name: str, node_number: int, user_name: str, u
       use_key = os.path.join(conf.local_key_dir, node.key_name) + ".key"
       with open(use_key, "w+", encoding="UTF-8") as f:
         f.write(key)
+      try:
+        os.chmod(use_key, 0o600)
+      except OSError:
+        pass
     else:
       raise ValueError("No custom key provided nor private key found in the key storage. Please add private key to"
                        " storage or use custom one with 'use-key' argument")

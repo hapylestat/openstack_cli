@@ -50,7 +50,7 @@ def _keys_list(conf: Configuration, ostack: OpenStack, show_row_nums: bool = Fal
       CHECK_ICON if kp.private_key else UNCHECK_ICON,
       CHECK_ICON if kp.public_key else UNCHECK_ICON,
       CHECK_ICON if hash(kp) in server_keypairs else UNCHECK_ICON,
-      server_keypairs[hash(kp)].fingerprint
+      server_keypairs[hash(kp)].fingerprint if hash(kp) in server_keypairs else "00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00"
     )
 
   return conf_keys
