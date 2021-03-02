@@ -316,11 +316,11 @@ class OpenStackQuotaItem(object):
 class OpenStackQuotas(object):
   def __init__(self):
     # Max, Used, Available
-    self.__metrics: Dict[OpenStackQuotaType, Tuple[int or float, int or float]] = {}
+    self.__metrics: Dict[OpenStackQuotaType, Tuple[Union[int,float], Union[int,float]]] = {}
     self.__max_metric_length = 0
 
   def add(self, metric_name: OpenStackQuotaType, max_count: int or float, used: int or float):
-    self.__metrics[metric_name] = (max_count, used)
+    self.__metrics[metric_name] = max_count, used,
     if self.__max_metric_length < len(metric_name.value):
       self.__max_metric_length = len(metric_name.value)
 
@@ -389,6 +389,9 @@ class OpenStackUsers(object):
       return None
 
     return self.__users_db[user_id]
+
+  def exists(self, user_id: str) -> bool:
+    return user_id in self.__users_db
 
 class OSImageInfo(object):
   def __init__(self, name: str, ver: str, orig: DiskImageInfo):

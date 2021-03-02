@@ -92,7 +92,7 @@ def __init__(conf: Configuration, name: str, count: int, flavor: str, image: str
       _pass = conf.default_vm_password if not password else password
 
       print(f"   |Image flavor to use: {img_flavor.name}")
-      print(f"   |Image to use      : {image.alias}")
+      print(f"   |Image to use       : {image.alias}")
       print(f"   |Key to use         : {_key.name}")
       print(f"   |Hosts to add       : {', '.join(name)}")
   else:
