@@ -14,13 +14,10 @@
 #  limitations under the License.
 
 from openstack_cli.core.config import Configuration
-from openstack_cli.modules.apputils.discovery import CommandMetaInfo
+from openstack_cli.modules.apputils.discovery import CommandMetaInfo, NotImplementedCommandException
 
-__module__ = CommandMetaInfo("reset-cache", "Reset cached entities")
+__module__ = CommandMetaInfo("snap", item_help="Manage OpenStack Snapshoots", default_sub_command="list")
 
 
 def __init__(conf: Configuration):
-  for cache_item in conf.list_cache_ext:
-    print(f"Invalidate cache extention '{cache_item}'...")
-    conf.get_cache_ext(cache_item).invalidate_all()
-  print("Cached data flushed")
+  raise NotImplementedCommandException()

@@ -21,8 +21,7 @@ from collections import defaultdict, OrderedDict
 from getpass import getpass
 from typing import List, Dict
 
-from . import BaseConfiguration
-from .sql_storage import SQLStorage
+from . import BaseConfiguration, BaseStorage
 
 
 class NoUpgradeNeeded(BaseException):
@@ -33,7 +32,7 @@ class NoUpgradeNeeded(BaseException):
 
 
 class UpgradeCatalog(object):
-  def __init__(self, conf: BaseConfiguration, storage: SQLStorage = None, catalog_version: float = None):
+  def __init__(self, conf: BaseConfiguration, storage: BaseStorage = None, catalog_version: float = None):
     self._storage = storage if storage else conf._storage
     self._conf = conf
     self._catalog_version = catalog_version
@@ -72,7 +71,7 @@ class UpgradeManager(object):
     answer = self.__ask_text_question(prompt, encrypted).lower()
     return answer == "y" or answer == "yes"
 
-  def init_config(self, conf: BaseConfiguration, storage: SQLStorage):
+  def init_config(self, conf: BaseConfiguration, storage: BaseStorage):
     use_master_password: bool = self.__ask_question("Secure configuration with master password (y/n): ")
     if use_master_password:
       store_encryption_key: bool = self.__ask_question("Cache encryption key on disk (y/n): ")
@@ -104,7 +103,7 @@ class UpgradeManager(object):
 
     return True
 
-  def upgrade(self, conf: BaseConfiguration, storage: SQLStorage):
+  def upgrade(self, conf: BaseConfiguration, storage: BaseStorage):
     global UPGRADE_CATALOGS
     if not isinstance(UPGRADE_CATALOGS, OrderedDict):
       UPGRADE_CATALOGS = OrderedDict(sorted(UPGRADE_CATALOGS.items()))

@@ -20,7 +20,7 @@ from datetime import datetime
 from enum import Enum
 from io import RawIOBase
 from time import strptime
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Union, Optional
 
 from openstack_cli.modules.apputils.json2obj import SerializableObject
 from openstack_cli.modules.openstack.api_objects import EndpointCatalog, ComputeServerInfo, DiskImageInfo, \
@@ -41,6 +41,12 @@ class EndpointTypes(Enum):
   cloudformation = "cloudformation"
   load_balancer = "load-balancer"
 
+
+EndpointVersions = {
+  EndpointTypes.network.value: "/v2.0",
+  EndpointTypes.identity.value: "/v3",
+  EndpointTypes.image.value: "/v2"
+}
 
 class ImageStatus(Enum):
  """
@@ -135,10 +141,8 @@ class OpenStackEndpoints(object):
     for el in endpoints:
       for e in el.endpoints:
         if e.region == self.__region and e.interface == self.__interface:
-          if el.type == EndpointTypes.network.value:  # hack
-            e.url += "/v2.0"
-          elif el.type == EndpointTypes.identity.value:
-            e.url += "/v3"
+          if el.type in EndpointVersions:
+            e.url += EndpointVersions[el.type]
 
           self.__endpoint_cache[endpoint_type] = e.url
           return e.url
@@ -173,14 +177,127 @@ class OpenStackEndpoints(object):
     return self.__project_id
 
 
+class OSFlavor(SerializableObject):
+  __orig: ComputeFlavorItem = None
+
+  @classmethod
+  def get(cls, orig: ComputeFlavorItem):
+    """
+    :rtype OSFlavor
+    """
+    return cls()._set_flavor(orig)
+
+  def _set_flavor(self, orig: ComputeFlavorItem):
+    """
+    :rtype OSFlavor
+    """
+    self.__orig = orig
+    return self
+
+  @property
+  def raw(self) -> ComputeFlavorItem:
+    return self.__orig
+
+  @property
+  def name(self):
+    return self.__orig.name
+
+  @property
+  def ram(self):  # bytes
+    # originally provided in mb
+    return self.__orig.ram * 1024 * 1024
+
+  @property
+  def vcpus(self):
+    return self.__orig.vcpus
+
+  @property
+  def swap(self):
+    return self.__orig.swap
+
+  @property
+  def disk(self):
+    """
+    :return Disk size in kilobytes
+    """
+    # this is provided in gb
+    return self.__orig.disk * 1024 * 1024 * 1024
+
+  @property
+  def ephemeral_disk(self):
+    """
+    :return: ephemeral disk size in kilobytes
+    """
+    #  base value in GB, experimentally estimated
+    return self.__orig.OS_FLV_EXT_DATA_ephemeral * 1024 * 1024 * 1024
+
+  @property
+  def sum_disk_size(self):
+    return self.disk + self.ephemeral_disk
+
+  @property
+  def id(self):
+    return self.__orig.id
+
+
+class OpenStackVMInfo(object):
+  def __init__(self):
+    self.name: Optional[str] = None
+    self.id: Optional[str] = None
+    self.status: ServerState = ServerState.error
+    self.state: ServerPowerState = ServerPowerState.nostate
+    self.created: Optional[datetime] = None
+    self.updated: Optional[datetime] = None
+    self.owner_id: Optional[str] = None
+    self.net_name: Optional[str] = None
+    self.ip_address: Optional[str] = None
+    self.image_id: Optional[str] = None
+    self.image: Optional[DiskImageInfo] = None
+    self.key_name: Optional[str] = None
+    self.cluster_name: Optional[str] = None
+    self._flavor: Optional[OSFlavor] = None
+    self._original: Optional[ComputeServerInfo] = None
+    self._net: OSNetworkItem = OSNetworkItem()
+
+  @property
+  def flavor(self) -> OSFlavor:
+    return self._flavor
+
+  @property
+  def original(self) -> ComputeServerInfo:
+    return self._original
+
+  @property
+  def fqdn(self) -> str:
+    return f"{self.name}.{self._net.domain_name}"
+
+  @property
+  def domain(self) -> str:
+    return self._net.domain_name
+
+
+class OpenStackQuotaType(Enum):
+  CPU_CORES = "CPU_CORES"
+  RAM_GB = "RAM_GB"
+  INSTANCES = "INSTANCES"
+  NET_PORTS = "NET_PORTS"
+  KEYPAIRS = "KEYPAIRS"
+  SERVER_GROUPS = "SERVER_GROUPS"
+  RAM_MB = "RAM_MB"
+
+
 class OpenStackQuotaItem(object):
-  def __init__(self, name: str, max_count: int, used: int):
+  def __init__(self, name: OpenStackQuotaType, max_count: int, used: int):
     self.__name = name
     self.__max_count = max_count
     self.__used = used
 
   @property
-  def name(self):
+  def name(self) -> str:
+    return self.__name.value
+
+  @property
+  def type(self) -> OpenStackQuotaType:
     return self.__name
 
   @property
@@ -199,17 +316,23 @@ class OpenStackQuotaItem(object):
 class OpenStackQuotas(object):
   def __init__(self):
     # Max, Used, Available
-    self.__metrics: Dict[str, Tuple[int or float, int or float]] = {}
+    self.__metrics: Dict[OpenStackQuotaType, Tuple[int or float, int or float]] = {}
     self.__max_metric_length = 0
 
-  def add(self, metric_name: str, max_count: int or float, used: int or float):
+  def add(self, metric_name: OpenStackQuotaType, max_count: int or float, used: int or float):
     self.__metrics[metric_name] = (max_count, used)
-    if self.__max_metric_length < len(metric_name):
-      self.__max_metric_length = len(metric_name)
+    if self.__max_metric_length < len(metric_name.value):
+      self.__max_metric_length = len(metric_name.value)
 
   @property
   def max_metric_len(self):
     return self.__max_metric_length
+
+  def get_quota(self, _t: OpenStackQuotaType) -> Tuple[Union[int,float], Union[int, float]]:
+    if _t in self.__metrics:
+      return self.__metrics[_t]
+
+    return None
 
   def __iter__(self):
     self.__n = 0
@@ -234,54 +357,38 @@ class OpenStackUsers(object):
         users_db[image.user_id] = image.owner_user_name
 
     self.__users_db = users_db
+    self.__servers_updated: bool = False
+
+  def update_from_servers(self, servers: List[OpenStackVMInfo]):
+    if self.__servers_updated:
+      return
+
+    for server in servers:
+      self.update_from_server(server)
+
+    self.__servers_updated = True
+
+  def update_from_server(self, server: OpenStackVMInfo):
+    if server.owner_id in self.__users_db:
+      return
+
+    if server.name:
+      uname, _, _ = server.name.partition('-')
+      self.__users_db[server.owner_id] = uname
 
   @property
   def users(self) -> Dict[str, str]:
     return dict(self.__users_db.items())
 
-  def get_user(self, user_id: str) -> str or None:
+  def add_user(self, user_id: str, user_name: str):
+    if user_id not in self.__users_db:
+      self.__users_db[user_id] = user_name
+
+  def get_user(self, user_id: str) -> Optional[str]:
     if user_id not in self.__users_db:
       return None
 
     return self.__users_db[user_id]
-
-
-class OpenStackVMInfo(object):
-  def __init__(self):
-    self.name: str or None = None
-    self.id: str or None = None
-    self.status: ServerState = ServerState.error
-    self.state: ServerPowerState = ServerPowerState.nostate
-    self.created: datetime or None = None
-    self.updated: datetime or None = None
-    self.owner_id: str or None = None
-    self.owner_name: str or None = None
-    self.net_name: str or None = None
-    self.ip_address: str or None = None
-    self.image_id: str or None = None
-    self.image: DiskImageInfo or None = None
-    self.key_name: str or None = None
-    self.cluster_name: str or None = None
-    self._flavor: ComputeFlavorItem or None = None
-    self._original: ComputeServerInfo or None = None
-    self._net: OSNetworkItem = OSNetworkItem()
-
-  @property
-  def flavor(self) -> ComputeFlavorItem:
-    return self._flavor
-
-  @property
-  def original(self) -> ComputeServerInfo:
-    return self._original
-
-  @property
-  def fqdn(self) -> str:
-    return f"{self.name}.{self._net.domain_name}"
-
-  @property
-  def domain(self) -> str:
-    return self._net.domain_name
-
 
 class OSImageInfo(object):
   def __init__(self, name: str, ver: str, orig: DiskImageInfo):
@@ -324,69 +431,6 @@ class OSImageInfo(object):
   @property
   def description(self):
     return f"Image {self.name}; ID: {self.__orig.id}"
-
-
-class OSFlavor(SerializableObject):
-  __orig: ComputeFlavorItem = None
-
-  @classmethod
-  def get(cls, orig: ComputeFlavorItem):
-    """
-    :rtype OSFlavor
-    """
-    return cls()._set_flavor(orig)
-
-  def _set_flavor(self, orig: ComputeFlavorItem):
-    """
-    :rtype OSFlavor
-    """
-    self.__orig = orig
-    return self
-
-  def base_flavor(self) -> ComputeFlavorItem:
-    return self.__orig
-
-  @property
-  def name(self):
-    return self.__orig.name
-
-  @property
-  def ram(self):
-    # originally provided in mb
-    return self.__orig.ram * 1024 * 1024
-
-  @property
-  def vcpus(self):
-    return self.__orig.vcpus
-
-  @property
-  def swap(self):
-    return self.__orig.swap
-
-  @property
-  def disk(self):
-    """
-    :return Disk size in kilobytes
-    """
-    # this is provided in gb
-    return self.__orig.disk * 1024 * 1024 * 1024
-
-  @property
-  def ephemeral_disk(self):
-    """
-    :return: ephemeral disk size in kilobytes
-    """
-    #  base value in GB, experimentally estimated
-    return self.__orig.OS_FLV_EXT_DATA_ephemeral * 1024 * 1024 * 1024
-
-  @property
-  def sum_disk_size(self):
-    return self.disk + self.ephemeral_disk
-
-  @property
-  def id(self):
-    return self.__orig.id
-
 
 class OSNetworkItem(SerializableObject):
   name: str = ""
@@ -497,7 +541,7 @@ class VMCreateBuilder(object):
     self.__vm.personality.append(f)
     return self
 
-  def add_text_file(self, remote_path: str, value: List[str] or str):
+  def add_text_file(self, remote_path: str, value: Union[List[str],str]):
     f = VMCreateNewFileItem()
     f.path = remote_path
     f.contents = base64.b64encode(bytearray(
@@ -524,10 +568,10 @@ class OpenStackVM(object):
 
   def __init__(self,
                servers: List[ComputeServerInfo],
-               users: OpenStackUsers,
                images: Dict[str, DiskImageInfo],
-               flavors: Dict[str, ComputeFlavorItem],
-               networks: OSNetwork
+               flavors: Dict[str, OSFlavor],
+               networks: OSNetwork,
+               users: Optional[OpenStackUsers] = None
                ):
     self.__max_host_name_len = 0
     self.__max_domain_name_len = 0
@@ -567,7 +611,6 @@ class OpenStackVM(object):
         vm.ip_address = "0.0.0.0"
 
       vm.owner_id = server.user_id
-      vm.owner_name = users.get_user(vm.owner_id)
       vm.image_id = server.image.id
       vm.image = images[vm.image_id] if vm.image_id in images else DiskImageInfo()
       vm.key_name = server.key_name
@@ -584,6 +627,9 @@ class OpenStackVM(object):
         vm._flavor = flavors[server.flavor.id]
 
       self.__items.append(vm)
+
+      if users:
+        users.update_from_server(vm)
 
   @property
   def items(self) -> List[OpenStackVMInfo]:
@@ -612,9 +658,8 @@ class OpenStackVM(object):
   def __str__(self):
     s = []
     for vm in self.__items:
-      owner = vm.owner_name if vm.owner_name else vm.owner_id
       s.append(f"Cluster: {vm.cluster_name}, vm name: {vm.name},"
-               f" image: {vm.image.name}, ip: {vm.ip_address}, owner: {owner}, status: {vm.status}")
+               f" image: {vm.image.name}, ip: {vm.ip_address}, status: {vm.status}")
 
     return "\n".join(s)
 

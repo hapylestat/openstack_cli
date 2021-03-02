@@ -12,15 +12,16 @@
 #  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
+#
+#  Github: https://github.com/hapylestat/apputils
+#
+#
 
-from openstack_cli.core.config import Configuration
-from openstack_cli.modules.apputils.discovery import CommandMetaInfo
+from enum import Enum
 
-__module__ = CommandMetaInfo("reset-cache", "Reset cached entities")
+from .base_storage import BaseStorage, StorageProperty, StoragePropertyType
+from .sql_storage import SQLStorage
 
 
-def __init__(conf: Configuration):
-  for cache_item in conf.list_cache_ext:
-    print(f"Invalidate cache extention '{cache_item}'...")
-    conf.get_cache_ext(cache_item).invalidate_all()
-  print("Cached data flushed")
+class StorageType(Enum):
+  SQL = SQLStorage

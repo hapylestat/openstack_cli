@@ -13,6 +13,7 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 from time import sleep
+from typing import List
 
 from openstack_cli.modules.apputils.terminal.colors import Colors
 
@@ -22,8 +23,7 @@ from openstack_cli.modules.openstack import OpenStack, OpenStackVMInfo
 from openstack_cli.core.config import Configuration
 from openstack_cli.modules.apputils.terminal import TableOutput, TableColumn
 from openstack_cli.modules.apputils.discovery import CommandMetaInfo
-from openstack_cli.modules.openstack.objects import ServerState
-
+from openstack_cli.modules.openstack.objects import ServerState, OSImageInfo, OSFlavor
 
 __module__ = CommandMetaInfo("up", "Deploys new cluster")
 __args__ = __module__.arg_builder\
@@ -34,18 +34,10 @@ __args__ = __module__.arg_builder\
   .add_argument("key", str, "Key to use for login", default="")\
   .add_argument("password", str, "Password to use for login", default="")
 
+from openstack_cli.modules.utils import ValueHolder
+
 
 def __init__(conf: Configuration, name: str, count: int, flavor: str, image: str, key: str, password: str):
-  ostack = OpenStack(conf)
-
-  def __filter(vm: OpenStackVMInfo) -> bool:
-    return not str(vm.name).startswith(name)
-
-  servers = ostack.get_server_by_cluster(name, True, filter_func=__filter)
-  if servers:
-    Console.print_warning(f"Cluster with name '{Colors.BRIGHT_WHITE.wrap(name)}' already exists, instance would be not be created")
-    print_cluster(servers)
-    return
 
   def __work_unit(x: OpenStackVMInfo) -> bool:
     while True:
@@ -59,16 +51,61 @@ def __init__(conf: Configuration, name: str, count: int, flavor: str, image: str
       #  ToDo: short term cache data by reservation_id
       x = ostack.get_server_by_id(x)
 
-  with Console.status_context("Resolving cluster configuration"):
-    image = list(ostack.get_image_by_alias(image))
-    if not image:
-      raise RuntimeError("Cannot resolve image name for the request")
+  # ======================================================================
+  ostack = OpenStack(conf)
+  vh = ValueHolder(2)
 
-    image = image[0]
-    img_flavor = ostack.get_flavor(image, flavor)
-    _default_key = ostack.get_keypairs()[0] if ostack.get_keypairs() else None
-    _key = _default_key if not key else ostack.get_keypair(key, _default_key)
-    _pass = conf.default_vm_password if not password else password
+  def __filter(vm: OpenStackVMInfo) -> bool:
+    r =  not str(vm.name).startswith(name)
+    if not r:
+      vh.set_if_bigger(0, len(vm.cluster_name))
+      vh.set_if_bigger(1, len(vm.flavor.name))
+    return r
+
+  servers = ostack.get_server_by_cluster(name, True, filter_func=__filter)
+  if len(servers) > 1:
+    Console.print_warning(f"Cluster with name '{Colors.BRIGHT_WHITE.wrap(name)}' already exists, instance would be not be created")
+    print_cluster(servers, vh)
+    return
+  elif len(servers) == 1:
+    Console.print_info(f"The cluster already exists, will add requested amount of hosts to the cluster")
+    with Console.status_context(f"Obtaining cluster information from existing {name}..."):
+      cluster_name, hosts = next(iter(servers.items()))
+      cluster_name: str = cluster_name
+      hosts: List[OpenStackVMInfo] = hosts
+      host: OpenStackVMInfo = hosts[0]
+
+      # re-calculate host names
+      last_host_name = hosts[-1:][0].name
+      _, _, num = last_host_name.rpartition("-")
+
+      _start_num: int = 1
+      if num and num.isnumeric():
+        _start_num: int = int(num) + 1
+
+      name: List[str] = [ f"{cluster_name}-{num}" for num in range(_start_num, _start_num + count)]
+
+      image: OSImageInfo = ostack.get_os_image(host.image)
+      img_flavor: OSFlavor = host.flavor
+      _default_key = ostack.get_keypairs()[0] if ostack.get_keypairs() else None
+      _key = ostack.get_keypair(host.key_name, _default_key)
+      _pass = conf.default_vm_password if not password else password
+
+      print(f"   |Image flavor to use: {img_flavor.name}")
+      print(f"   |Image to use      : {image.alias}")
+      print(f"   |Key to use         : {_key.name}")
+      print(f"   |Hosts to add       : {', '.join(name)}")
+  else:
+    with Console.status_context("Resolving cluster configuration"):
+      image: List[OSImageInfo] = list(ostack.get_image_by_alias(image))
+      if not image:
+        raise RuntimeError("Cannot resolve image name for the request")
+
+      image: OSImageInfo = image[0]
+      img_flavor = ostack.get_flavor(image, flavor)
+      _default_key = ostack.get_keypairs()[0] if ostack.get_keypairs() else None
+      _key = _default_key if not key else ostack.get_keypair(key, _default_key)
+      _pass = conf.default_vm_password if not password else password
 
   # == create nodes
 
@@ -76,7 +113,7 @@ def __init__(conf: Configuration, name: str, count: int, flavor: str, image: str
 
   with Console.status_context("Asking for node creation"):
     servers = ostack.create_instances(
-      cluster_name=name,
+      cluster_names=name,
       image=image,
       flavor=img_flavor,
       password=_pass,

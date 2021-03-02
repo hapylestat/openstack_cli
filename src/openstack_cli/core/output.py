@@ -241,6 +241,11 @@ class Console(object):
     print()
 
   @classmethod
+  def print_info(cls, *text: str):
+    print(f"{Colors.BRIGHT_GREEN}///{Colors.BRIGHT_WHITE}Info{Colors.RESET} -> ", *text)
+    print()
+
+  @classmethod
   def print_warning(cls, *text: str):
     print(f"{Colors.BRIGHT_CYAN}///{Colors.YELLOW}Warning{Colors.RESET} -> ", *text)
     print()

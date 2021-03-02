@@ -15,14 +15,51 @@
 
 import os
 import json
+import time
 from typing import List
 
-from openstack_cli.modules.apputils.config import BaseConfiguration, StorageProperty
+from openstack_cli.modules.apputils.config import BaseConfiguration, StorageProperty, StorageType, DataCacheExtension
 from openstack_cli.modules.openstack.objects import VMProject
 
 
 class Configuration(BaseConfiguration):
+  __OBJECTS_CACHE_TABLE = "cache"
+  __cache_invalidation: float = time.mktime(time.gmtime(8 * 3600))  # 8 hours
   _keys_table = "keys"
+
+  def __init__(self, storage: StorageType = StorageType.SQL,
+               app_name: str = 'apputils', lazy_init: bool = False, upgrade_manager=None):
+    super(Configuration, self).__init__(
+      storage=storage,
+      app_name=app_name,
+      lazy_init=lazy_init,
+      upgrade_manager=upgrade_manager
+    )
+
+    self.add_cache_ext(self.__OBJECTS_CACHE_TABLE, self.__cache_invalidation)
+
+    self.__migrate_if_needed()
+
+  def __migrate_if_needed(self):
+    if self._options_flags_name_old not in self._storage.get_property_list(self._options_table):
+      return
+
+    val = list(self._storage.get_property(self._options_table,self._options_flags_name_old).value)
+    if len(val) != 3:
+      return
+
+    new_val: int = 0
+
+    for i in range(0, len(val)-1):
+      _v = 1 if val[i] == "1" else 0
+      new_val = new_val | (_v << i)
+
+    self._storage.set_text_property(self._options_table, self._options_flags_name, str(new_val))
+    self._storage.delete_property(self._options_table, self._options_flags_name_old)
+
+  @property
+  def cache(self) -> DataCacheExtension:
+    return self.get_cache_ext(self.__OBJECTS_CACHE_TABLE)
 
   @property
   def os_address(self) -> str:
@@ -151,11 +188,8 @@ class Configuration(BaseConfiguration):
 
   @property
   def check_for_update(self) -> bool:
-    class UpdateClass(object):
-      pass
-
-    if not self.get_cache(UpdateClass):
-      self.set_cache(UpdateClass, "Aha-ha, here we are!")
+    if not self.cache.exists("UpdateClass"):
+      self.cache.set("UpdateClass", "Aha-ha, here we are!")
       return True
 
     return False

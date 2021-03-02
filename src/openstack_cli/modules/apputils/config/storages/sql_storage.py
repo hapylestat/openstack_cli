@@ -20,97 +20,20 @@
 import sqlite3
 import os
 import json
-
 import time
-from enum import Enum
-from getpass import getpass
+
 from typing import List, Callable
-from cryptography.fernet import Fernet, InvalidToken
-
-from .base_storage import BaseStorage
-
-
-class StoragePropertyType(Enum):
-  text = "text"
-  encrypted = "encrypted"
-  json = "json"
-
-  @classmethod
-  def from_string(cls, property_type: str):
-    """
-    :rtype StoragePropertyType
-    """
-    if property_type == "text":
-      return cls.text
-    elif property_type == "encrypted":
-      return cls.encrypted
-    elif property_type == "json":
-      return cls.json
-
-    return cls.text
-
-
-class StorageProperty(object):
-  def __init__(self, name: str = "", property_type: StoragePropertyType = StoragePropertyType.text or str,
-               value: str or dict = "", updated: float or None = None):
-    self.__name: str = name
-    if isinstance(property_type, StoragePropertyType):
-      self.__property_type: StoragePropertyType = property_type
-    elif isinstance(property_type, str):
-      self.__property_type: StoragePropertyType = StoragePropertyType.from_string(property_type)
-    else:
-      self.__property_type: StoragePropertyType = StoragePropertyType.text
-    self.__value: str or dict = value
-    self.__updated: float = updated if updated else time.time()
-
-  @property
-  def name(self):
-    return self.__name
-
-  @property
-  def property_type(self):
-    return self.__property_type
-
-  @property_type.setter
-  def property_type(self, value: StoragePropertyType):
-    self.__property_type = value
-
-  @property
-  def value(self):
-    return self.__value
-
-  @property
-  def updated(self) -> float:
-    return self.__updated
-
-  @property
-  def str_value(self):
-    if isinstance(self.__value, dict):
-      return json.dumps(self.__value)
-    elif isinstance(self.__value, str):
-      return self.__value
-    else:
-      return str(self.__value)
+from .base_storage import BaseStorage, StoragePropertyType, StorageProperty
 
 
 class SQLStorage(BaseStorage):
   __tables: List[str] = None
-  __key_encoding = "UTF-8"
 
-  def __init__(self, lazy: bool = False):
-    super(SQLStorage, self).__init__()
+  def __init__(self, app_name: str = "apputils", lazy: bool = False):
+    super(SQLStorage, self).__init__(app_name, lazy)
 
-    self.__fernet: Fernet or None = None
     self._db_connection: sqlite3.Connection = sqlite3.connect(self.configuration_file_path, check_same_thread=False)
     self.__tables: List[str] = self.__get_table_list()
-
-    if not lazy:
-      self.initialize_key()
-
-  def initialize_key(self):
-    persist = os.path.exists(self.secret_file_path)
-    key = self._load_secret_key(persist=persist)
-    self.__fernet: Fernet or None = Fernet(key) if key else None
 
   def reset(self):
     if self._db_connection:
@@ -123,75 +46,6 @@ class SQLStorage(BaseStorage):
       os.remove(self.configuration_file_path)
 
     self._db_connection = sqlite3.connect(self.configuration_file_path, check_same_thread=False)
-
-  def create_key(self, persist: bool, master_password: str):
-    if persist and master_password is None:
-      print("Notice: With no password set would be generated default PC-depended encryption key")
-      pw1 = getpass("Set master password (leave blank for no password): ")
-      pw2 = getpass("Verify password: ")
-      if pw1 != pw2:
-        raise RuntimeError("Passwords didn't match!")
-      master_password = pw1
-
-    if os.path.exists(self.secret_file_path):
-      print("Resetting already existing encryption key")
-      self.reset()
-
-    if master_password is not None and not master_password:  # i.e. pass = ""
-      persist = True
-
-    if persist:
-      print("Generating key, please wait...")
-      key = self._generate_key(master_password)
-      with open(self.secret_file_path, "wb") as f:
-        f.write(key)
-
-      print(f"Key saved to {self.secret_file_path}, keep it safe")
-
-  def _load_secret_key(self, persist: bool = False) -> str or None:
-    if persist and not os.path.exists(self.secret_file_path):
-      raise RuntimeError("Master key is not found, please re-configure tool")
-
-    if not persist:
-      pw1 = getpass("Master password: ")
-      return self._generate_key(pw1)
-    else:
-      with open(self.secret_file_path, "r") as f:
-        return f.readline().strip(os.linesep)
-
-  def _generate_key(self, password: str) -> bytes:
-    import platform
-    import base64
-    import hashlib
-    from cryptography.hazmat.backends import default_backend
-    from cryptography.hazmat.primitives import hashes
-    from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
-
-    sha512_hash = hashlib.sha512()
-    sha512_hash.update(f"{platform.processor()}".encode(encoding=self.__key_encoding))
-    salt = sha512_hash.digest()
-    kdf = PBKDF2HMAC(
-      algorithm=hashes.SHA3_256(),
-      length=32,
-      salt=salt,
-      iterations=300000,
-      backend=default_backend()
-    )
-
-    return base64.urlsafe_b64encode(kdf.derive(password.encode(self.__key_encoding)))
-
-  def _encrypt(self, value: str) -> str:
-    if self.__fernet:
-      return self.__fernet.encrypt(value.encode(self.__key_encoding))
-    return value
-
-  def _decrypt(self, value: str) -> str:
-    if self.__fernet:
-      try:
-        return self.__fernet.decrypt(value).decode("utf-8")
-      except InvalidToken:
-        raise ValueError("Provided key is invalid, unable to decrypt encrypted data")
-    return value
 
   def _query(self,
              sql: str = None,
@@ -245,6 +99,11 @@ class SQLStorage(BaseStorage):
     self.execute_script(sql)
     self._db_connection.commit()
     self.__tables.append(table)
+
+  def reset_property_update_time(self, table: str, name: str or StorageProperty):
+    if isinstance(name, StorageProperty):
+      name = name.name
+    self._query(f"update {table} set updated=0.1 where name='{name}'", commit=True)
 
   def reset_properties_update_time(self, table: str):
     self._query(f"update {table} set updated=0.1", commit=True)

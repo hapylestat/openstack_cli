@@ -15,37 +15,41 @@
 
 import sys
 import time
-from typing import ClassVar
+from enum import Enum
+from typing import  Dict, List
 
-from .sql_storage import SQLStorage, StorageProperty, StoragePropertyType
+from .ext import DataCacheExtension, OptionsExtension
+from .storages import StorageType
+from .storages.base_storage import BaseStorage, StorageProperty, StoragePropertyType
 
 
 class BaseConfiguration(object):
   __cache_invalidation: float = time.mktime(time.gmtime(8 * 3600))  # 8 hours
+  _options_flags_name_old = "options"
+  _options_flags_name = "config_options"
   _options_table = "general"
-  __cache_table = "cache"
 
-  __options_amount = 3
-  __options_flags_name = "options"
-  __option_conf_initialized = 0
-  __option_credentials_cached = 1
-  __option_use_master_password = 2
+  class ConfigOptions(Enum):
+    CONF_INITIALIZED = 0
+    CREDENTIALS_CACHED = 1
+    USE_MASTER_PASSWORD = 2
 
-  def __init__(self, upgrade_manager=None):
+  def __init__(self, storage: StorageType = StorageType.SQL,
+               app_name: str = 'apputils', lazy_init: bool = False, upgrade_manager=None):
     """
     :type upgrade_manager .upgrades.UpgradeManager
     """
     from .upgrades import UpgradeManager
 
     self.__upgrade_manager = upgrade_manager if upgrade_manager else UpgradeManager()
-    self.__storage = SQLStorage(lazy=True)
-    self.__options = [0] * self.__options_amount
+    self.__storage: BaseStorage = storage.value(app_name=app_name, lazy=lazy_init)
+    self.__options = OptionsExtension(self.__storage, self._options_table, self._options_flags_name, self.ConfigOptions)
+    self.__caches: Dict = {}
 
   def initialize(self):
     """
     :rtype BaseConfiguration
     """
-    self.__read_options()
     if self.is_conf_initialized:
       self._storage.initialize_key()
       try:
@@ -60,46 +64,47 @@ class BaseConfiguration(object):
 
     return self
 
-  def __read_options(self):
-    if self._options_table in self._storage.tables:
-      opts = self._storage.get_property(self._options_table, self.__options_flags_name)
-      if opts.value:
-        self.__options = [int(ch) for ch in opts.value]
+  def add_cache_ext(self, name: str, cache_lifetime: float = __cache_invalidation):
+    if name not in self.__caches:
+      self.__caches[name] = DataCacheExtension(self.__storage, name, cache_lifetime)
 
-  def __save_options(self):
-    val = ''.join([str(ch) for ch in self.__options])
-    self._storage.set_text_property(self._options_table, self.__options_flags_name, val)
+  def get_cache_ext(self, name: str) -> DataCacheExtension:
+    if name not in self.__caches:
+      self.add_cache_ext(name)
+
+    return self.__caches[name]
 
   @property
-  def _storage(self) -> SQLStorage:
+  def list_cache_ext(self) -> List[str]:
+    return list(self.__caches.keys())
+
+  @property
+  def _storage(self) -> BaseStorage:
     return self.__storage
 
   @property
   def is_conf_initialized(self):
-    return self.__options[self.__option_conf_initialized] == 1
+    return self.__options.get(self.ConfigOptions.CONF_INITIALIZED)
 
   @is_conf_initialized.setter
   def is_conf_initialized(self, value):
-    self.__options[self.__option_conf_initialized] = 1  # only True could be
-    self.__save_options()
+    self.__options.set(self.ConfigOptions.CONF_INITIALIZED, True)
 
   @property
   def __credentials_cached(self) -> bool:
-    return self.__options[self.__options_amount] == 1
+    return self.__options.get(self.ConfigOptions.CREDENTIALS_CACHED)
 
   @__credentials_cached.setter
   def __credentials_cached(self, value: bool):
-    self.__options[self.__option_credentials_cached] = 1 if value else 0
-    self.__save_options()
+    self.__options.set(self.ConfigOptions.CREDENTIALS_CACHED, value)
 
   @property
   def __use_master_password(self):
-    return self.__options[self.__option_use_master_password] == 1
+    self.__options.get(self.ConfigOptions.USE_MASTER_PASSWORD)
 
   @__use_master_password.setter
   def __use_master_password(self, value: bool):
-    self.__options[self.__option_use_master_password] = 1 if value else 0
-    self.__save_options()
+    self.__options.set(self.ConfigOptions.USE_MASTER_PASSWORD, value)
 
   @property
   def _test_encrypted_property(self):
@@ -108,28 +113,6 @@ class BaseConfiguration(object):
   @_test_encrypted_property.setter
   def _test_encrypted_property(self, value):
     self._storage.set_text_property(self._options_table, "enctest", value, encrypted=True)
-
-  def invalidate_cache(self):
-    self._storage.reset_properties_update_time(self.__cache_table)
-
-  def is_cached(self, clazz: ClassVar) -> bool:
-    p: StorageProperty = self._storage.get_property(self.__cache_table, clazz.__name__)
-
-    if p.updated:
-      time_delta: float = time.time() - p.updated
-      if time_delta >= self.__cache_invalidation:
-        return False
-    return p.value not in ('', {})
-
-  def get_cache(self, clazz: ClassVar) -> str or dict or None:
-    p: StorageProperty = self._storage.get_property(self.__cache_table, clazz.__name__)
-
-    if p.updated:
-      time_delta: float = time.time() - p.updated
-      if time_delta >= self.__cache_invalidation:
-        return None
-
-    return p.value
 
   @property
   def version(self) -> float:
@@ -142,9 +125,6 @@ class BaseConfiguration(object):
   @version.setter
   def version(self, version: float):
     self._storage.set_property("general", StorageProperty(name="db_version", value=str(version)))
-
-  def set_cache(self, clazz: ClassVar, v: str or dict):
-    self._storage.set_text_property(self.__cache_table, clazz.__name__, v, encrypted=True)
 
   def reset(self):
     self._storage.reset()

@@ -13,14 +13,17 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
+from openstack_cli.modules.apputils.terminal import TableOutput, TableColumn, TableSizeColumn, TableMaxValue
 from openstack_cli.core.config import Configuration
 from openstack_cli.modules.apputils.discovery import CommandMetaInfo
+from openstack_cli.modules.openstack import OpenStack, OSImageInfo, DiskImageInfo
 
-__module__ = CommandMetaInfo("reset-cache", "Reset cached entities")
+
+__module__ = CommandMetaInfo("rm", item_help="Remove snap item", default_sub_command="list")
+__args__ = __module__.arg_builder \
+  .add_default_argument("search_pattern", str, "search filter", default="") \
+  .add_argument("own", bool, "Show only own items", default=False)
 
 
 def __init__(conf: Configuration):
-  for cache_item in conf.list_cache_ext:
-    print(f"Invalidate cache extention '{cache_item}'...")
-    conf.get_cache_ext(cache_item).invalidate_all()
-  print("Cached data flushed")
+  pass

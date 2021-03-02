@@ -13,14 +13,6 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
-from openstack_cli.core.config import Configuration
-from openstack_cli.modules.apputils.discovery import CommandMetaInfo
 
-__module__ = CommandMetaInfo("reset-cache", "Reset cached entities")
-
-
-def __init__(conf: Configuration):
-  for cache_item in conf.list_cache_ext:
-    print(f"Invalidate cache extention '{cache_item}'...")
-    conf.get_cache_ext(cache_item).invalidate_all()
-  print("Cached data flushed")
+from .cache import DataCacheExtension
+from .options import OptionsExtension

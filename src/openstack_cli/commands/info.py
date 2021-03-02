@@ -13,13 +13,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from enum import Enum
+from typing import Dict, List
 
 from openstack_cli.modules.apputils.terminal import TableOutput, TableColumn
 
+from openstack_cli.modules.openstack.objects import ServerPowerState, OpenStackVMInfo
 from openstack_cli.modules.apputils.terminal.colors import Colors, Symbols
 from openstack_cli.core.config import Configuration
 from openstack_cli.modules.apputils.discovery import CommandMetaInfo
 from openstack_cli.modules.openstack import OpenStack
+from openstack_cli.modules.utils import ValueHolder
 
 
 __module__ = CommandMetaInfo("info", "Shows the detailed information about requested VMs")
@@ -27,10 +31,14 @@ __args__ = __module__.arg_builder\
   .add_default_argument("search_pattern", str, "Search query", default="") \
   .add_argument("own", bool, "Display only owned by user items", default=False)
 
-from openstack_cli.modules.openstack.objects import ServerPowerState
+
+class WidthConst(Enum):
+  max_fqdn_len = 0
+  max_key_len = 1
+  max_net_len = 2
 
 
-def __init__(conf: Configuration, search_pattern: str, debug: bool, own: bool):
+def print_cluster(servers: Dict[str, List[OpenStackVMInfo]], vh: ValueHolder = None, ostack: OpenStack = None):
   __run_ico = Symbols.PLAY.green()
   __pause_ico = Symbols.PAUSE.yellow()
   __stop_ico = Symbols.STOP.red()
@@ -39,20 +47,19 @@ def __init__(conf: Configuration, search_pattern: str, debug: bool, own: bool):
     ServerPowerState.paused: __pause_ico
   }
 
-  ostack = OpenStack(conf, debug=debug)
-  clusters = ostack.get_server_by_cluster(search_pattern=search_pattern, sort=True, only_owned=own)
-  max_fqdn_len = ostack.servers.max_host_len + ostack.servers.max_domain_len + 5
+  if vh is None:
+    vh = ValueHolder(3, [50, 30, 15])
 
   to = TableOutput(
     TableColumn("", 1, inv_ch=Colors.GREEN.wrap_len()),
-    TableColumn("Host name", max_fqdn_len),
+    TableColumn("Host name", vh.get(WidthConst.max_fqdn_len)),
     TableColumn("Host IP", 16),
-    TableColumn("SSH Key", 30),
-    TableColumn("Network name", length=15)
+    TableColumn("SSH Key", vh.get(WidthConst.max_key_len)),
+    TableColumn("Network name", length=vh.get(WidthConst.max_net_len))
   )
 
   to.print_header()
-  for cluster_name, servers in clusters.items():
+  for cluster_name, servers in servers.items():
     servers = sorted(servers, key=lambda x: x.fqdn)
     for server in servers:
       to.print_row(
@@ -62,3 +69,19 @@ def __init__(conf: Configuration, search_pattern: str, debug: bool, own: bool):
         server.key_name,
         server.net_name
       )
+
+def __init__(conf: Configuration, search_pattern: str, debug: bool, own: bool):
+  vh: ValueHolder = ValueHolder(3)
+  def __fake_filter(s: OpenStackVMInfo):
+    vh.set_if_bigger(WidthConst.max_fqdn_len, len(s.fqdn))
+    vh.set_if_bigger(WidthConst.max_key_len, len(s.key_name))
+    vh.set_if_bigger(WidthConst.max_net_len, len(s.net_name))
+    return False
+
+  ostack = OpenStack(conf, debug=debug)
+  clusters = ostack.get_server_by_cluster(search_pattern=search_pattern, sort=True, only_owned=own,
+                                          filter_func=__fake_filter)
+
+  print_cluster(clusters, vh, ostack)
+
+

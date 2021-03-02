@@ -15,6 +15,7 @@
 
 
 import os
+from openstack_cli import __app_name__ as app_name
 from openstack_cli import commands
 from openstack_cli.core.config import Configuration
 from openstack_cli.core.updates import upgrade_manager, import_upgrade_packs
@@ -22,7 +23,7 @@ from openstack_cli.core.updates import upgrade_manager, import_upgrade_packs
 
 def main_entry():
 
-  conf: Configuration = Configuration(upgrade_manager=upgrade_manager)
+  conf: Configuration = Configuration(upgrade_manager=upgrade_manager, app_name=app_name, lazy_init=True)
   if upgrade_manager.upgrade_required(conf):
     import_upgrade_packs()
 

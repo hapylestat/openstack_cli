@@ -27,6 +27,9 @@ if sys.platform == "win32":
   kernel32.SetConsoleMode(kernel32.GetStdHandle(-11), 7)
 
 
+ESCAPE_CH = "\033"
+
+
 class Symbols(Enum):
   CHECK = "✔"
   CROSS = "❌"

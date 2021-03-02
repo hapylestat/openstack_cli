@@ -13,14 +13,31 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
-from openstack_cli.core.config import Configuration
-from openstack_cli.modules.apputils.discovery import CommandMetaInfo
-
-__module__ = CommandMetaInfo("reset-cache", "Reset cached entities")
+from enum import Enum
 
 
-def __init__(conf: Configuration):
-  for cache_item in conf.list_cache_ext:
-    print(f"Invalidate cache extention '{cache_item}'...")
-    conf.get_cache_ext(cache_item).invalidate_all()
-  print("Cached data flushed")
+class ValueHolder(object):
+  def __init__(self, v_amount: int = 0, values: list = ()):
+    if values and len(values) == v_amount:
+      self.__values = values
+    else:
+      self.__values = [0] * v_amount
+
+
+  def set_if_bigger(self, n: int or Enum[int], v):
+    if isinstance(n, Enum):
+      n = n.value
+
+    if  v > self.__values[n]:
+      self.__values[n] = v
+
+  def set(self, n: int or Enum[int], v):
+    if isinstance(n, Enum):
+      n = n.value
+
+    self.__values[n] = v
+
+  def get(self, n: int or Enum[int]):
+    if isinstance(n, Enum):
+      n = n.value
+    return self.__values[n]

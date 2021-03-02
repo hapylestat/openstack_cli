@@ -17,13 +17,12 @@ import base64
 import json
 import os
 import re
-import collections
 import sys
 import time
 from enum import Enum
 from inspect import FrameInfo
 from json import JSONDecodeError
-from typing import Dict, List, Callable, Iterable, TypeVar
+from typing import Dict, List, Callable, Iterable, TypeVar, Optional, Union
 
 from openstack_cli.modules.apputils.terminal.colors import Colors
 from openstack_cli.modules.apputils.curl import curl, CurlRequestType, CURLResponse
@@ -33,7 +32,7 @@ from openstack_cli.modules.openstack.api_objects import ComputeLimits, VolumeV3L
   VMKeypairItemValue, VMKeypairs, LoginResponse, Token, APIProjects
 from openstack_cli.modules.openstack.objects import OpenStackEndpoints, EndpointTypes, OpenStackQuotas, ImageStatus, \
   OpenStackUsers, OpenStackVM, OpenStackVMInfo, OSImageInfo, OSFlavor, OSNetwork, VMCreateBuilder, ServerPowerState, \
-  ServerState, AuthRequestBuilder, AuthRequestType
+  ServerState, AuthRequestBuilder, AuthRequestType, OpenStackQuotaType
 
 T = TypeVar('T')
 
@@ -67,11 +66,14 @@ class OpenStack(object):
     self.__last_errors: List[str] = []
     self.__login_api = f"{conf.os_address}/v3"
     self._conf = conf
-    self.__endpoints__: OpenStackEndpoints or None = None
+    self.__endpoints__: Optional[OpenStackEndpoints] = None
     self.__cache_images: Dict[str, DiskImageInfo] = {}
-    self.__users_cache: OpenStackUsers or None = None
-    self.__flavors_cache: Dict[str, OSFlavor] or None = {}
-    self.__networks_cache: OSNetwork or None = None
+
+    # initializes in 2 steps: scanning images and server list when it is requested
+    self.__users_cache: Optional[OpenStackUsers] = None
+
+    self.__flavors_cache: Optional[Dict[str, OSFlavor]] = {}
+    self.__networks_cache: Optional[OSNetwork] = None
     self.__debug = debug or os.getenv("API_DEBUG", False) == "True"
     self.__local_cache: Dict[LocalCacheType, object] = {}
 
@@ -96,23 +98,26 @@ class OpenStack(object):
 
   def __init_after_auth__(self):
     # getting initial data
-    if self._conf.is_cached(DiskImageInfo):
-      self.__cache_images = {k: DiskImageInfo(serialized_obj=v) for k, v in json.loads(self._conf.get_cache(DiskImageInfo)).items()}
+    if self._conf.cache.exists(DiskImageInfo):
+      self.__cache_images = {k: DiskImageInfo(serialized_obj=v) for k, v in json.loads(self._conf.cache.get(DiskImageInfo)).items()}
     else:
-      a = self.images
+      self.images
 
-    if self._conf.is_cached(OSFlavor):
-      self.__flavors_cache = {k: OSFlavor(serialized_obj=v) for k, v in json.loads(self._conf.get_cache(OSFlavor)).items()}
+    if self._conf.cache.exists(OSFlavor):
+      self.__flavors_cache = {k: OSFlavor(serialized_obj=v) for k, v in json.loads(self._conf.cache.get(OSFlavor)).items()}
     else:
-      a = self.flavors
+      self.flavors
 
-    if self._conf.is_cached(OSNetwork):
-      self.__networks_cache = OSNetwork(serialized_obj=self._conf.get_cache(OSNetwork))
+    if self._conf.cache.exists(OSNetwork):
+      self.__networks_cache = OSNetwork(serialized_obj=self._conf.cache.get(OSNetwork))
     else:
-      a = self.networks
+      self.networks
+
+    if not self.__users_cache:
+      self.users
 
     # fake cache, used to re-sync server keys from time to time
-    if not self._conf.is_cached(VMKeypairItemValue):
+    if not self._conf.cache.exists(VMKeypairItemValue):
       conf_keys_hashes = [hash(k) for k in self._conf.get_keys()]
       server_keys = self.get_keypairs()
       for server_key in server_keys:
@@ -123,7 +128,7 @@ class OpenStack(object):
             print(f"Key {server_key.name} is present locally but have wrong hash, replacing with server key")
             self._conf.delete_key(server_key.name)
             self._conf.add_key(server_key)
-      self._conf.set_cache(VMKeypairItemValue, "this super cache")
+      self._conf.cache.set(VMKeypairItemValue, "this super cache")
 
   def __check_token(self) -> bool:
     headers = {
@@ -360,13 +365,14 @@ class OpenStack(object):
     )
     return APIProjects(serialized_obj=d).projects
 
-
   @property
   def users(self) -> OpenStackUsers:
     if self.__users_cache:
       return self.__users_cache
 
     self.__users_cache = OpenStackUsers(self.images)
+
+    self.__users_cache.add_user(self._conf.user_id, self._conf.os_login)
     return self.__users_cache
 
   @property
@@ -381,7 +387,7 @@ class OpenStack(object):
     images = DiskImages(
       serialized_obj=self.__request(
         EndpointTypes.image,
-        "/v2/images",
+        "/images",
         is_json=True,
         page_collection_name="images",
         params=params
@@ -393,44 +399,51 @@ class OpenStack(object):
     for img in images:
       _cached_images[img.id] = img
       _cached[img.id] = img.serialize()
-    self._conf.set_cache(DiskImageInfo, _cached)
+    self._conf.cache.set(DiskImageInfo, _cached)
     self.__cache_images = _cached_images
 
     return list(self.__cache_images.values())
+
+  def get_os_image(self, image: DiskImageInfo) -> Optional[OSImageInfo]:
+    if image.image_type:  # process only base images
+      return None
+
+    match = re.match(self.__os_image_pattern, image.name)
+
+    if not match:
+      return None
+
+    os_img = OSImageInfo(
+      match.group("name"),
+      match.group("ver"),
+      image
+    )
+    # === here is some lame way to filter out image forks or non-base images by analyzing image name
+    # ToDo: Is here a better way to distinguish the image os?
+
+    # try to handle situations like "x yyyy" in versions and treat them like "x.yyyy"
+    ver = os_img.version.split(" ") if " " in os_img.version else None
+    if ver:
+      try:
+        ver = ".".join([str(int(n)) for n in ver])
+      except ValueError:
+        ver = None
+    if ver:
+      os_img.version = ver
+
+    if "SP" not in os_img.version and " " in os_img.version:
+      return None
+
+    return os_img
 
   @property
   def os_images(self) -> List[OSImageInfo]:
     img = []
     known_versions = {}
     for image in self.images:
-      if image.image_type:  # process only base images
-        continue
+      os_img: OSImageInfo = self.get_os_image(image)
 
-      match = re.match(self.__os_image_pattern, image.name)
-
-      if not match or image.status != "active":  # no interest in non-active images
-        continue
-
-      os_img = OSImageInfo(
-        match.group("name"),
-        match.group("ver"),
-        image
-      )
-
-      # === here is some lame way to filter out image forks or non-base images by analyzing image name
-      # ToDo: Is here a better way to distinguish the image os?
-
-      # try to handle situations like "x yyyy" in versions and treat them like "x.yyyy"
-      ver = os_img.version.split(" ") if " " in os_img.version else None
-      if ver:
-        try:
-          ver = ".".join([str(int(n)) for n in ver])
-        except ValueError:
-          ver = None
-      if ver:
-        os_img.version = ver
-
-      if "SP" not in os_img.version and " " in os_img.version:
+      if os_img is None:
         continue
 
       if os_img.os_name.lower() not in known_versions:
@@ -471,13 +484,13 @@ class OpenStack(object):
     #   )
     # )
     quotas = OpenStackQuotas()
-    quotas.add("CPU_CORES", limits_obj.maxTotalCores, limits_obj.totalCoresUsed)
-    quotas.add("RAM_GB", limits_obj.maxTotalRAMSize / 1024, limits_obj.totalRAMUsed / 1024)
-    quotas.add("INSTANCES", limits_obj.maxTotalInstances, limits_obj.totalInstancesUsed)
-    quotas.add("NET_PORTS", network_obj.port.limit, network_obj.port.used)
-    quotas.add("KEYPAIRS", limits_obj.maxTotalKeypairs, 0)
-    quotas.add("SERVER_GROUPS", limits_obj.maxServerGroups, limits_obj.totalServerGroupsUsed)
-    quotas.add("RAM_MB", limits_obj.maxTotalRAMSize, limits_obj.totalRAMUsed)
+    quotas.add(OpenStackQuotaType.CPU_CORES, limits_obj.maxTotalCores, limits_obj.totalCoresUsed)
+    quotas.add(OpenStackQuotaType.RAM_GB, limits_obj.maxTotalRAMSize / 1024, limits_obj.totalRAMUsed / 1024)
+    quotas.add(OpenStackQuotaType.INSTANCES, limits_obj.maxTotalInstances, limits_obj.totalInstancesUsed)
+    quotas.add(OpenStackQuotaType.NET_PORTS, network_obj.port.limit, network_obj.port.used)
+    quotas.add(OpenStackQuotaType.KEYPAIRS, limits_obj.maxTotalKeypairs, 0)
+    quotas.add(OpenStackQuotaType.SERVER_GROUPS, limits_obj.maxServerGroups, limits_obj.totalServerGroupsUsed)
+    quotas.add(OpenStackQuotaType.RAM_MB, limits_obj.maxTotalRAMSize, limits_obj.totalRAMUsed)
 
     return quotas
 
@@ -504,7 +517,7 @@ class OpenStack(object):
       self.__flavors_cache[_flavor.id] = _flavor
       _cache[_flavor.id] = _flavor.serialize()
 
-    self._conf.set_cache(OSFlavor, _cache)
+    self._conf.cache.set(OSFlavor, _cache)
 
     return list(self.__flavors_cache.values())
 
@@ -560,7 +573,7 @@ class OpenStack(object):
       page_collection_name="servers"
     )
     servers = ComputeServers(serialized_obj=servers_raw).servers
-    obj = OpenStackVM(servers, self.users, self.__cache_images, self.__flavors_cache, self.__networks_cache)
+    obj = OpenStackVM(servers, self.__cache_images, self.__flavors_cache, self.__networks_cache, self.__users_cache)
     if arguments:  # do no cache custom requests
       return obj
     else:
@@ -578,7 +591,7 @@ class OpenStack(object):
     )
 
     servers = [ComputeServerInfo(serialized_obj=r["server"])]
-    osvm = OpenStackVM(servers, self.users, self.__cache_images, self.__flavors_cache, self.__networks_cache)
+    osvm = OpenStackVM(servers, self.__cache_images, self.__flavors_cache, self.__networks_cache)
     return osvm.items[0]
 
   @property
@@ -608,7 +621,7 @@ class OpenStack(object):
       page_collection_name="subnets"
     )).subnets
     self.__networks_cache = OSNetwork().parse(networks, subnets)
-    self._conf.set_cache(OSNetwork, self.__networks_cache.serialize())
+    self._conf.cache.set(OSNetwork, self.__networks_cache.serialize())
     return self.__networks_cache
 
   def get_server_by_cluster(self,
@@ -633,10 +646,10 @@ class OpenStack(object):
       }).items
 
       for server in servers:
-        if filter_func and filter_func(server):
+        if only_owned and server.owner_id != user_id:
           continue
 
-        if only_owned and server.owner_id != user_id:
+        if filter_func and filter_func(server): # need to be last in the filtering chain
           continue
 
         if server.cluster_name not in _servers:
@@ -649,10 +662,10 @@ class OpenStack(object):
         if search_pattern and search_pattern.lower() != _sname:
           continue
 
-        if filter_func and filter_func(server):
+        if only_owned and server.owner_id != user_id:
           continue
 
-        if only_owned and server.owner_id != user_id:
+        if filter_func and filter_func(server): # need to be last in the filtering chain
           continue
 
         if server.cluster_name not in _servers:
@@ -661,7 +674,9 @@ class OpenStack(object):
         _servers[server.cluster_name].append(server)
 
     if sort:
-      _servers = collections.OrderedDict(sorted(_servers.items()))
+      for key in _servers:
+        _servers[key] = sorted(_servers[key], key=lambda x: x.name)
+      _servers = dict(sorted(_servers.items(), key=lambda x: x[0]))
     return _servers
 
   def get_server_console_log(self,
@@ -700,6 +715,18 @@ class OpenStack(object):
 
   def _to_base64(self, s: str) -> str:
     return str(base64.b64encode(s.encode("utf-8")), "utf-8")
+
+  def delete_image(self, image: DiskImageInfo) -> bool:
+    disk_id: str = image.id
+    try:
+      r = self.__request(
+        EndpointTypes.image,
+        f"/images/{disk_id}",
+        req_type=CurlRequestType.DELETE
+      )
+      return True
+    except ValueError as e:
+      return False
 
   def delete_instance(self, server: OpenStackVMInfo or ComputeServerInfo) -> bool:
     server_id: str = server.id
@@ -829,7 +856,7 @@ class OpenStack(object):
   def get_server_status(self, servers_id: str or OpenStackVMInfo) -> ServerState:
     return self.get_server_by_id(servers_id).status
 
-  def create_instances(self, cluster_name: str, image: OSImageInfo, flavor: OSFlavor,
+  def create_instances(self, cluster_names: Union[List[str], str], image: OSImageInfo, flavor: OSFlavor,
                        password: str, ssh_key: VMKeypairItemValue = None, count: int = 1) -> List[OpenStackVMInfo]:
     custom_user = "openstack"
     init_script = f"""#!/bin/bash
@@ -845,7 +872,7 @@ systemctl restart sshd.service
       init_script += f"""
 KEY='{ssh_key.public_key}'
 echo ${{KEY}} >/root/.ssh/authorized_keys
-mkdir -p /home/{custom_user}/.ssh; '${{KEY}}' >/home/{custom_user}/.ssh/authorized_keys
+mkdir -p /home/{custom_user}/.ssh; echo '${{KEY}}' >/home/{custom_user}/.ssh/authorized_keys
 """
 
     init_script += f"""
@@ -853,34 +880,44 @@ UID_MIN=$(grep -E '^UID_MIN' /etc/login.defs | tr -d -c 0-9)
 USERS=$(awk -v uid_min="${{UID_MIN}}" -F: '$3 >= uid_min && $1 != "nobody" {{printf "%s ",$1}}'  /etc/passwd)
 echo "@users@: ${{USERS}}"
 """
+    if isinstance(cluster_names, str):
+      cluster_names: List[str] = [cluster_names]
 
-    builder = VMCreateBuilder(cluster_name) \
-      .set_admin_pass(password) \
-      .set_image(image.base_image) \
-      .set_flavor(flavor) \
-      .add_network(self._conf.default_network) \
-      .set_user_data(init_script) \
-      .set_instances_count(count) \
-      .enable_reservation_id()
+    if len(cluster_names) > 1:  # we can create eighter bulk of cluster with one request or with different request
+      count: int = 1
 
-    if ssh_key:
-      builder.set_key_name(ssh_key.name)
+    created_servers: List[OpenStackVMInfo] = []
 
-    r = None
-    try:
-      r = self.__request(
-        EndpointTypes.compute,
-        "/servers",
-        req_type=CurlRequestType.POST,
-        is_json=True,
-        data=builder.build().serialize()
-      )
-    except ValueError as e:
-      self.__last_errors.append(str(e))
-      return []
+    for cluster_name in cluster_names:
+      builder = VMCreateBuilder(cluster_name) \
+        .set_admin_pass(password) \
+        .set_image(image.base_image) \
+        .set_flavor(flavor) \
+        .add_network(self._conf.default_network) \
+        .set_user_data(init_script) \
+        .set_instances_count(count) \
+        .enable_reservation_id()
 
-    if (response := VMCreateResponse(serialized_obj=r)) and response.reservation_id:
-      servers = self.get_servers({"reservation_id": response.reservation_id})
-      return list(servers.items)
+      if ssh_key:
+        builder.set_key_name(ssh_key.name)
 
-    return [self.get_server_by_id(response.server.id)]
+      r = None
+      try:
+        r = self.__request(
+          EndpointTypes.compute,
+          "/servers",
+          req_type=CurlRequestType.POST,
+          is_json=True,
+          data=builder.build().serialize()
+        )
+      except ValueError as e:
+        self.__last_errors.append(str(e))
+        return []
+
+      if (response := VMCreateResponse(serialized_obj=r)) and response.reservation_id:
+        servers = self.get_servers({"reservation_id": response.reservation_id})
+        created_servers.extend(list(servers.items))
+      else:
+        created_servers.append(self.get_server_by_id(response.server.id))
+
+    return created_servers
