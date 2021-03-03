@@ -1,15 +1,31 @@
+#https://www.jetbrains.com/help/idea/configuring-code-style.html#editorconfig
 root = true
 
 [*]
 charset = utf-8
 end_of_line = lf
 trim_trailing_whitespace = true
+ij_wrap_on_typing = false
 
 
 [*.py]
+tab_width = 2
+max_line_length = 120
 indent_style = space
 indent_size = 2
 insert_final_newline = true
+ij_continuation_indent_size = 2
+ij_smart_tabs = true
+ij_visual_guides = 120,120
+ij_python_blank_line_at_file_end = true
+ij_python_blank_lines_after_imports = 1
+ij_python_dict_alignment = 0
+ij_python_from_import_wrapping = 1
+ij_python_optimize_imports_join_from_imports_with_same_source = true
+ij_python_optimize_imports_sort_by_type_first = true
+ij_python_optimize_imports_sort_imports = true
+ij_python_optimize_imports_sort_names_in_from_imports = true
+ij_python_wrap_long_lines = false
 
 [*.md]
 trim_trailing_whitespace = false

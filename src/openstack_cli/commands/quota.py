@@ -37,13 +37,13 @@ def get_percents(current: float, fmax: float):
   return (current * 100) / fmax
 
 
-def get_plain_progress(percents, color:str = "", width: int = 30):
+def get_plain_progress(percents, color:str = "", width: int = 30, ch: str = "#"):
   f = int(round((percents * width) / 100))
   nf = int(width - f)
   if color:
-    return f"{color}{'#' * f}{' '* nf}{Colors.RESET}"
+    return f"{color}{ch * f}{' '* nf}{Colors.RESET}"
   else:
-    return f"{'#' * f}{' '* nf}"
+    return f"{ch * f}{' '* nf}"
 
 def get_progressbar(percents, color:str = "", width: int = 30):
   return f"[{get_plain_progress(percents, color, width)}]"
@@ -162,7 +162,7 @@ def display_combined_graph(metrics: Dict[str, Dict[OpenStackQuotaType, int]], us
 
 
   caption_title = ", ".join([f"{_quota_colors[quota]}{quota.name}{Colors.RESET}" for quota in _combined_quotas])
-  print(f"{caption_title} Graph")
+  print(f"{caption_title} Quota Consuming Graph")
   print(f"{'-'*len(caption_title)}---------\n")
 
   for user_id, user_metric in metrics.items():
@@ -176,7 +176,7 @@ def display_combined_graph(metrics: Dict[str, Dict[OpenStackQuotaType, int]], us
       actual_percents = get_percents(user_metric[_t], quotas.get_quota(_t)[0])
       user_metric_str = f"{int(user_metric[_t]/1024):>4} GB" if _t == OpenStackQuotaType.RAM_MB else user_metric[_t]
 
-      progress_bar[_t] = get_plain_progress(percents, "", column2_max_width)
+      progress_bar[_t] = get_plain_progress(percents, "", column2_max_width, ch="⣿")
       metric_title[_t] = f"{user_metric_str:<6}/{actual_percents:6.2f}%"
 
     for _t in _combined_quotas:

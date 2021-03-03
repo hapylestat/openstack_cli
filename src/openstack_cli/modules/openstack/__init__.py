@@ -22,17 +22,19 @@ import time
 from enum import Enum
 from inspect import FrameInfo
 from json import JSONDecodeError
-from typing import Dict, List, Callable, Iterable, TypeVar, Optional, Union
+from typing import Callable, Dict, Iterable, List, Optional, TypeVar, Union
 
+from openstack_cli.modules.apputils.curl import CURLResponse, CurlRequestType, curl
+from openstack_cli.modules.apputils.progressbar import CharacterStyles, ProgressBar, ProgressBarFormat, \
+  ProgressBarOptions
 from openstack_cli.modules.apputils.terminal.colors import Colors
-from openstack_cli.modules.apputils.curl import curl, CurlRequestType, CURLResponse
-from openstack_cli.modules.openstack.api_objects import ComputeLimits, VolumeV3Limits, DiskImages, \
-  DiskImageInfo, ComputeServers, NetworkLimits, ComputeFlavors, ComputeFlavorItem, Networks, NetworkItem, Subnets, \
-  VMCreateResponse, ComputeServerInfo, ComputeServerActions, ComputeServerActionRebootType, VMKeypairItem, \
-  VMKeypairItemValue, VMKeypairs, LoginResponse, Token, APIProjects
-from openstack_cli.modules.openstack.objects import OpenStackEndpoints, EndpointTypes, OpenStackQuotas, ImageStatus, \
-  OpenStackUsers, OpenStackVM, OpenStackVMInfo, OSImageInfo, OSFlavor, OSNetwork, VMCreateBuilder, ServerPowerState, \
-  ServerState, AuthRequestBuilder, AuthRequestType, OpenStackQuotaType
+from openstack_cli.modules.openstack.api_objects import APIProjects, ComputeFlavorItem, ComputeFlavors, ComputeLimits, \
+  ComputeServerActionRebootType, ComputeServerActions, ComputeServerInfo, ComputeServers, DiskImageInfo, DiskImages, \
+  LoginResponse, NetworkItem, NetworkLimits, Networks, Subnets, Token, VMCreateResponse, VMKeypairItem, \
+  VMKeypairItemValue, VMKeypairs, VolumeV3Limits
+from openstack_cli.modules.openstack.objects import AuthRequestBuilder, AuthRequestType, EndpointTypes, ImageStatus, \
+  OSFlavor, OSImageInfo, OSNetwork, OpenStackEndpoints, OpenStackQuotaType, OpenStackQuotas, OpenStackUsers, \
+  OpenStackVM, OpenStackVMInfo, ServerPowerState, ServerState, VMCreateBuilder
 
 T = TypeVar('T')
 
@@ -97,27 +99,7 @@ class OpenStack(object):
     return self.__local_cache[cache_type.value]
 
   def __init_after_auth__(self):
-    # getting initial data
-    if self._conf.cache.exists(DiskImageInfo):
-      self.__cache_images = {k: DiskImageInfo(serialized_obj=v) for k, v in json.loads(self._conf.cache.get(DiskImageInfo)).items()}
-    else:
-      self.images
-
-    if self._conf.cache.exists(OSFlavor):
-      self.__flavors_cache = {k: OSFlavor(serialized_obj=v) for k, v in json.loads(self._conf.cache.get(OSFlavor)).items()}
-    else:
-      self.flavors
-
-    if self._conf.cache.exists(OSNetwork):
-      self.__networks_cache = OSNetwork(serialized_obj=self._conf.cache.get(OSNetwork))
-    else:
-      self.networks
-
-    if not self.__users_cache:
-      self.users
-
-    # fake cache, used to re-sync server keys from time to time
-    if not self._conf.cache.exists(VMKeypairItemValue):
+    def __cache_ssh_keys():
       conf_keys_hashes = [hash(k) for k in self._conf.get_keys()]
       server_keys = self.get_keypairs()
       for server_key in server_keys:
@@ -128,7 +110,56 @@ class OpenStack(object):
             print(f"Key {server_key.name} is present locally but have wrong hash, replacing with server key")
             self._conf.delete_key(server_key.name)
             self._conf.add_key(server_key)
+
       self._conf.cache.set(VMKeypairItemValue, "this super cache")
+
+    def __cached_network():
+      self.__networks_cache = OSNetwork(serialized_obj=self._conf.cache.get(OSNetwork))
+
+    def __cached_images():
+      self.__cache_images = {k: DiskImageInfo(serialized_obj=v) for k, v in json.loads(self._conf.cache.get(DiskImageInfo)).items()}
+
+    def __cached_flavors():
+      self.__flavors_cache = {k: OSFlavor(serialized_obj=v) for k, v in json.loads(self._conf.cache.get(OSFlavor)).items()}
+
+    def __cached_ssh_keys():
+      return True
+
+    _cached_objects = {
+      DiskImageInfo: {
+       False: lambda: self.images,
+       True: lambda: __cached_images()
+      },
+      OSFlavor: {
+        False: lambda: self.flavors,
+        True: lambda: __cached_flavors()
+      },
+      OSNetwork: {
+       False: lambda: self.networks,
+       True: lambda: __cached_network()
+      },
+      VMKeypairItemValue: {
+       False: lambda: __cache_ssh_keys(),
+       True: lambda: __cached_ssh_keys()
+      }
+    }
+
+    need_recache: bool = False in [self._conf.cache.exists(obj) for obj in _cached_objects]
+    if need_recache and not self.__debug:
+      p = ProgressBar("Syncing to the server data",20,
+        ProgressBarOptions(CharacterStyles.simple, ProgressBarFormat.PROGRESS_FORMAT_STATUS)
+      )
+      p.start(len(_cached_objects))
+      for cache_item, funcs in _cached_objects.items():
+        p.progress_inc(1, cache_item.__name__)
+        funcs[self._conf.cache.exists(cache_item)]()
+      p.stop(hide_progress=True)
+    else:
+      for cache_item, funcs in _cached_objects.items():
+        funcs[self._conf.cache.exists(cache_item)]()
+
+    if not self.__users_cache:
+      self.users
 
   def __check_token(self) -> bool:
     headers = {
@@ -176,7 +207,8 @@ class OpenStack(object):
 
     if not r:
       from openstack_cli.core.output import Console
-      Console.print_error("Authentication server is not accessible: " + r.raw)
+      data = r.raw if r else "none"
+      Console.print_error(f"Authentication server is not accessible: {data}")
       return False
 
     if r.code not in [200, 201]:
