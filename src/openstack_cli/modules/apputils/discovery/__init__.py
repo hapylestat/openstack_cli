@@ -109,42 +109,54 @@ class CommandsDiscovery(object):
   def kwargs_name(self) -> List[str]:
     return list(self._options.kwargs.keys())
 
-  def _get_command(self, injected_args: dict = None, fail_on_unknown: bool = False) -> CommandModule:
+  def _get_command(self, injected_args: dict = None, fail_on_unknown: bool = False) -> List[CommandModule]:
     if not self._options.args:
       raise NoCommandException(None, "No command passed, unable to continue")
 
+    command_chain: List[CommandModule] = []
     command: CommandModule = self._modules[self._options.args[0]]  # [command name]
     command_args = self._options.args[1:]
 
+    # Process all command in sub-command chain [command1] [command2] .. [last command]
     while command_args:
       if command_args[0] not in command.subcommand_names:
         break
       command_name = command_args[0]
       command_args = command_args[1:]
 
-      command = command.get_subcommand(command_name)  # [command name] {subcommand}
+      if command.meta_info.exec_with_child:
+        command_chain.append(command)
+      command = command.get_subcommand(command_name)
 
+    # Now process the last command "default sub-command" forward if present
     if command.meta_info.default_sub_command and \
        command.meta_info.default_sub_command in command.subcommand_names:
 
-      command = command.get_subcommand(command.meta_info.default_sub_command)  # [command name] {subcommand} {sub}
+      if command.meta_info.exec_with_child:
+        command_chain.append(command)
+      command = command.get_subcommand(command.meta_info.default_sub_command)
 
+    command_chain.append(command)
     inj_args = set(injected_args.keys()) if injected_args else set()
-    command.set_argument(command_args, self._options.kwargs, inj_args, fail_on_unknown)
+    for _command in command_chain:
+     _require_transform = True if _command == command else False
+     _command.set_argument(command_args, self._options.kwargs, inj_args, fail_on_unknown, not _require_transform)
 
-    return command
+    return command_chain
 
   def execute_command(self, injected_args: dict = None):
     try:
-      command = self._get_command(injected_args)
-      command.execute(injected_args)
+      commands = self._get_command(injected_args)
+      for command in commands:
+        command.execute(injected_args)
     except CommandArgumentException as e:
       raise NoCommandException(None, f"Application arguments exception: {str(e)}\n")
 
   async def execute_command_async(self, injected_args: dict = None):
     try:
-      command = self._get_command()
-      await command.execute_async(injected_args)
+      commands = self._get_command()
+      for command in commands:
+        await command.execute_async(injected_args)
     except CommandArgumentException as e:
       raise NoCommandException(None, f"Application arguments exception: {str(e)}\n")
 
@@ -168,8 +180,9 @@ class CommandsDiscovery(object):
     # ToDO: add default command to be executed if no passed
     self.__inject_help_command()
     try:
-      command = self._get_command(injected_args=kwargs, fail_on_unknown=True)
-      command.execute(injected_args=kwargs)
+      commands = self._get_command(injected_args=kwargs, fail_on_unknown=True)
+      for command in commands:
+        command.execute(injected_args=kwargs)
     except NotImplementedCommandException:
       sys.stdout.write(generate_help(self._modules, self._options, *self.__get_modules_from_args()))
       pass

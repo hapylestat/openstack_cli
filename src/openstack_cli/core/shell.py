@@ -39,8 +39,6 @@ def _f12_commands(channel: paramiko.Channel):
     print(f"\n Character code debugging is: {F12MENU}")
     if F12MENU:
       print("> ", end='', flush=True)
-  elif _k == FUNC_KEYS.F5.value:
-    channel.resize_pty(*get_terminal_size())
   elif _k == (99,):  # C:
     SIGINT = True
   elif _k == (105,): # I
@@ -98,12 +96,13 @@ def __buffered_reader(stdread: paramiko.ChannelFile, stdwrite: TextIO):
   import time
   channel: paramiko.Channel = stdread.channel
   while not SIGINT and not channel.exit_status_ready():
-    time.sleep(0.2)
     if channel.recv_ready():
       r, w, x = select.select([channel], [], [], 0.0)
       if len(r) > 0:
         stdwrite.buffer.write(channel.recv(1024))
         stdwrite.flush()
+    else:
+       time.sleep(0.2)
 
   SIGINT = True
 
@@ -125,8 +124,7 @@ def __window_size_change_handler(channel: paramiko.Channel):
     time.sleep(1)
     nwidth, nheight = get_terminal_size()
     if nwidth != width or nheight != height:
-      width = nwidth
-      height = nheight
+      width, height = nwidth, nheight
       channel.resize_pty(width=width, height=height)
 
 
@@ -134,7 +132,7 @@ def shell(channel: paramiko.Channel):
   stdin: paramiko.ChannelFile = channel.makefile_stdin("wb")
   stdout: paramiko.ChannelFile = channel.makefile("r")
   stderr: paramiko.ChannelFile = channel.makefile_stderr("r")
-  print("Tip: F12 + I to show connection info, F12+C to close connection, F12+F5 force PTY size update")
+  print("Tip: F12 + I to show connection info, F12+C to close connection")
 
   stdoutReader = Thread(target=__buffered_reader, name="stdoutReader", args=(stdout, sys.stdout))
   stderrReader = Thread(target=__buffered_reader, name="stderrReader", args=(stderr, sys.stderr))
@@ -156,8 +154,11 @@ def shell(channel: paramiko.Channel):
     stdinWriter.start()
 
     stdoutReader.join()
-    print("Closing ssh session...")
-    channel.close()
   finally:
+    print("Closing ssh session...")
+    try:
+      channel.close()
+    except:
+      pass
     signal.signal(signal.SIGINT, orig_sigint)
 

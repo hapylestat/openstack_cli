@@ -32,6 +32,10 @@ def get_tk():
       def askopenfilename(*args, **kwargs):
         return None
 
+      @staticmethod
+      def askdirectory(*args, **kwargs):
+        return None
+
   if not tk_enabled:
     return None, None
 
@@ -46,5 +50,13 @@ def ask_open_file(title: str = "Select file", allowed_extensions=(('All files', 
   root, filedialog = get_tk()
   if filedialog:
     return filedialog.askopenfilename(title=title, filetypes=allowed_extensions)
+  else:
+    return input(f"{title}: ")
+
+def ask_open_directory(title: str = "Coose folder") -> str:
+  root, filedialog = get_tk()
+
+  if filedialog:
+    return filedialog.askdirectory(title=title)
   else:
     return input(f"{title}: ")

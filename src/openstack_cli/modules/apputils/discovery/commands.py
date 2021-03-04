@@ -157,12 +157,24 @@ class CommandArgumentsBuilder:
 
 
 class CommandMetaInfo(object):
-  def __init__(self, name: str, item_help: str = "", default_sub_command: str = "", **kwargs):
+  def __init__(self,
+               name: str,
+               item_help: str = "",
+               default_sub_command: str = "",
+               exec_with_child: bool = False,
+               **kwargs):
+    """
+    :arg name Name of the command
+    :arg item_help Help description of the command
+    :arg default_sub_command In case if command have sub-commands, name of sub-command to execute on requesting base command
+    :arg exec_with_child execute base command first, then sub-command. Valid to make command-wide checks.
+    """
     self._name = name
     self._arguments = CommandArgumentsBuilder()
     self._help = item_help
     self._kwargs = kwargs
     self._default_sub_command = default_sub_command
+    self._exec_with_child = exec_with_child
 
   @property
   def options(self) -> dict:
@@ -179,6 +191,15 @@ class CommandMetaInfo(object):
   @property
   def default_sub_command(self) -> str:
     return self._default_sub_command
+
+  @property
+  def exec_with_child(self) -> bool:
+    """
+    Execute base command first, then sub-command. Valid to make command-wide checks
+
+    Base command would be feeded with same commands as sub-command with disabled meta-info check
+    """
+    return self._exec_with_child
 
   @property
   def arguments(self) -> dict:
@@ -288,20 +309,38 @@ class CommandModule(object):
     if parent:
       self.__meta_info.arg_builder.merge(parent.__meta_info.arg_builder)
 
-  def set_argument(self, args: list, kwargs: dict, injected_args: set = None, fail_on_unknown=False):
+  def set_argument(self, args: list, kwargs: dict, injected_args: set = None,
+                   fail_on_unknown=False,
+                   skip_transform: bool = False):
+    """
+
+    :arg args list of default arguments
+    :arg kwargs: list of kwargs
+    :arg injected_args: list of added argumants
+    :arg fail_on_unknown:  option to throw exception if unknown argument found
+    :arg skip_transform:  skip argument transformation according to command meta. Usefull if the command is not
+                          the last in the execution chain
+
+    """
     if not injected_args:
       injected_args = set()
 
-    args = self.__meta_info.transform_default_arguments(args, fail_on_unknown=fail_on_unknown)
-    args.update(self.__meta_info.transform_arguments(kwargs, injected_args, fail_on_unknown=fail_on_unknown))
+    if not skip_transform:
+      args = self.__meta_info.transform_default_arguments(args, fail_on_unknown=fail_on_unknown)
+      args.update(self.__meta_info.transform_arguments(kwargs, injected_args, fail_on_unknown=fail_on_unknown))
 
-    f_args = self.entry_point_args
+      f_args = self.entry_point_args
 
-    if len(f_args) - len(set(f_args) & injected_args) != len(set(args.keys()) & set(f_args)):
-      raise CommandArgumentException("Function \"{}\" from module {} doesn't implement all arguments in the"
-                                     " signature or implements unknown definition".format(
-                                       self.__entry_point.__name__, self.__classpath
-                                     ))
+      if len(f_args) - len(set(f_args) & injected_args) != len(set(args.keys()) & set(f_args)):
+        raise CommandArgumentException("Function \"{}\" from module {} doesn't implement all arguments in the"
+                                       " signature or implements unknown definition".format(
+                                         self.__entry_point.__name__, self.__classpath
+                                       ))
+    else:
+      args = {
+        '_': args
+      }
+      args.update(kwargs)
     self.__args = args
 
   def add_subcommand(self, cmds):
