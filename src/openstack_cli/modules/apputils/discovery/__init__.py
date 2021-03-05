@@ -130,7 +130,7 @@ class CommandsDiscovery(object):
 
     # Now process the last command "default sub-command" forward if present
     if command.meta_info.default_sub_command and \
-       command.meta_info.default_sub_command in command.subcommand_names:
+      command.meta_info.default_sub_command in command.subcommand_names:
 
       if command.meta_info.exec_with_child:
         command_chain.append(command)
@@ -139,8 +139,8 @@ class CommandsDiscovery(object):
     command_chain.append(command)
     inj_args = set(injected_args.keys()) if injected_args else set()
     for _command in command_chain:
-     _require_transform = True if _command == command else False
-     _command.set_argument(command_args, self._options.kwargs, inj_args, fail_on_unknown, not _require_transform)
+      _require_transform = True if _command == command else False
+      _command.set_argument(command_args, self._options.kwargs, inj_args, fail_on_unknown, not _require_transform)
 
     return command_chain
 
@@ -180,8 +180,8 @@ class CommandsDiscovery(object):
     # ToDO: add default command to be executed if no passed
     self.__inject_help_command()
     try:
-      commands = self._get_command(injected_args=kwargs, fail_on_unknown=True)
-      for command in commands:
+      cmd_list = self._get_command(injected_args=kwargs, fail_on_unknown=True)
+      for command in cmd_list:
         command.execute(injected_args=kwargs)
     except NotImplementedCommandException:
       sys.stdout.write(generate_help(self._modules, self._options, *self.__get_modules_from_args()))

@@ -16,8 +16,10 @@
 from openstack_cli.core.config import Configuration
 from openstack_cli.modules.apputils.discovery import CommandMetaInfo, NotImplementedCommandException
 
-__module__ = CommandMetaInfo("snap", item_help="Manage OpenStack Snapshoots", default_sub_command="list")
+__module__ = CommandMetaInfo("snap", item_help="Manage OpenStack Snapshoots",
+                             default_sub_command="list", exec_with_child=True)
 
 
 def __init__(conf: Configuration):
+  print("====Wait for version 1.3=====")
   raise NotImplementedCommandException()

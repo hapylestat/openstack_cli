@@ -238,7 +238,7 @@ class CommandMetaInfo(object):
 
       raise CommandArgumentException(f"Command require {expected_length} positional argument(s), found {real_length}")
     elif self._arguments.has_optional_default_argument and argv \
-      and real_length < expected_length - default_args_count\
+      and real_length < expected_length - default_args_count \
       or (fail_on_unknown and real_length > expected_length):
 
       raise CommandArgumentException(
@@ -334,7 +334,7 @@ class CommandModule(object):
       if len(f_args) - len(set(f_args) & injected_args) != len(set(args.keys()) & set(f_args)):
         raise CommandArgumentException("Function \"{}\" from module {} doesn't implement all arguments in the"
                                        " signature or implements unknown definition".format(
-                                         self.__entry_point.__name__, self.__classpath
+                                        self.__entry_point.__name__, self.__classpath
                                        ))
     else:
       args = {

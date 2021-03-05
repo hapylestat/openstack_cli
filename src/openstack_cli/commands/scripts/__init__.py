@@ -14,12 +14,12 @@
 #  limitations under the License.
 
 from openstack_cli.core.config import Configuration
-from openstack_cli.modules.apputils.discovery import CommandMetaInfo
+from openstack_cli.modules.apputils.discovery import CommandMetaInfo, NotImplementedCommandException
 
 __module__ = CommandMetaInfo("scripts", item_help="Manage user scripts",
                              default_sub_command="list", exec_with_child=True)
 
 
 def __init__(conf: Configuration, **kwargs):
-  print("Lol")
-  # raise NotImplementedCommandException()
+  print("====Wait for version 1.3=====")
+  raise NotImplementedCommandException()
