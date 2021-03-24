@@ -20,6 +20,7 @@ from openstack_cli.modules.apputils.terminal import TableOutput, TableColumn
 from openstack_cli.core.output import Console, StatusOutput
 from openstack_cli.modules.apputils.config.upgrades import UpgradeCatalog, upgrade
 from openstack_cli.modules.openstack import OpenStack, AuthRequestType
+from openstack_cli.modules.openstack.api_objects import VMNewKeyPairItemBuilder
 from openstack_cli.modules.openstack.objects import VMProject
 
 
@@ -107,7 +108,7 @@ class UpgradeCatalog11(UpgradeCatalog):
 
     if not _is_cfg_key and not _is_srv_key:
       print(f"Creating new '{_default_keypair_name}' keypair..")
-      _create_key(conf, osvm, _default_keypair_name)
+      _create_key(conf, osvm, VMNewKeyPairItemBuilder().set_name(_default_keypair_name))
       print(f"Key '{_default_keypair_name}' could be exported using command 'conf keys export {_default_keypair_name}'")
 
     if not _is_cfg_key and _is_srv_key:

@@ -20,7 +20,7 @@ from openstack_cli.modules.apputils.discovery import CommandMetaInfo
 
 __module__ = CommandMetaInfo("list", item_help="List available scripts")
 __args__ = __module__.arg_builder\
-  .add_default_argument("name", str, "dadad")\
+  .add_default_argument("name", str, "", default="")\
   .add_argument("test", str, "", default="dda")
 
 

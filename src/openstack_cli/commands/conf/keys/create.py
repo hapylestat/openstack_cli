@@ -16,7 +16,7 @@
 from openstack_cli.core.output import StatusOutput
 from openstack_cli.modules.apputils.terminal import Console
 from openstack_cli.modules.openstack import OpenStack
-from openstack_cli.modules.openstack.api_objects import VMKeyPairItemBuilder
+from openstack_cli.modules.openstack.api_objects import VMKeyPairItemBuilder, VMNewKeyPairItemBuilder
 from openstack_cli.core.config import Configuration
 from openstack_cli.modules.apputils.discovery import CommandMetaInfo
 
@@ -42,31 +42,8 @@ def _create_key(conf:Configuration, ostack:OpenStack, keyBuilder: VMKeyPairItemB
 
 
 def __init__(conf: Configuration, name: str):
-  from cryptography.hazmat.primitives import serialization as crypto_serialization
-  from cryptography.hazmat.primitives.asymmetric import rsa
-  from cryptography.hazmat.backends import default_backend as crypto_default_backend
-
   ostack = OpenStack(conf)
-
-  key = rsa.generate_private_key(
-    backend=crypto_default_backend(),
-    public_exponent=65537,
-    key_size=2048
-  )
-  private_key = key.private_bytes(
-    crypto_serialization.Encoding.PEM,
-    crypto_serialization.PrivateFormat.TraditionalOpenSSL,  # PKCS8 is not supported best by paramiko
-    crypto_serialization.NoEncryption())
-  public_key = key.public_key().public_bytes(
-    crypto_serialization.Encoding.OpenSSH,
-    crypto_serialization.PublicFormat.OpenSSH
-  )
-
-  keyBuilder = VMKeyPairItemBuilder() \
-    .set_name(name) \
-    .set_private_key(private_key) \
-    .set_public_key(public_key)
-
+  keyBuilder = VMNewKeyPairItemBuilder().set_name(name)
   _create_key(conf, ostack, keyBuilder)
 
 
