@@ -65,12 +65,19 @@ class OptionsExtension(object):
     )
 
   def __gen_bitmask(self, width: int) -> int:
-    return (width << 1) - 1
+    if width == 1:
+      return 1
+
+    n = 1
+    for _ in range(1, width + 1):
+      n *= 2
+
+    return n - 1
 
   def _get_bit(self, _bitfield: int, n: int) -> bool:
     return (_bitfield >> n) & self.__bitmask == 1
 
-  def _set_bit(self, _bitfield: int, n: int, v:bool) -> int:
+  def _set_bit(self, _bitfield: int, n: int, v: bool) -> int:
     value = 1 if v else 0
     return _bitfield | (value << n)
 
@@ -84,5 +91,5 @@ class OptionsExtension(object):
     if not self.__loaded:
       self.__load_value()
 
-    self.__bitfield = self._set_bit(self.__bitmask, int(prop.value), 1 if v else 0)
+    self.__bitfield = self._set_bit(self.__bitfield, int(prop.value), v)
     self.__save_value()
