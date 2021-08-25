@@ -29,7 +29,8 @@ from openstack_cli.modules.utils import ValueHolder
 __module__ = CommandMetaInfo("info", "Shows the detailed information about requested VMs")
 __args__ = __module__.arg_builder\
   .add_default_argument("search_pattern", str, "Search query", default="") \
-  .add_argument("own", bool, "Display only owned by user items", default=False)
+  .add_argument("own", bool, "Display only owned by user items", default=False) \
+  .add_argument("showid", bool, "Display instances ID", default=False)
 
 
 class WidthConst(Enum):
@@ -38,7 +39,9 @@ class WidthConst(Enum):
   max_net_len = 2
 
 
-def print_cluster(servers: Dict[str, List[OpenStackVMInfo]], vh: ValueHolder = None, ostack: OpenStack = None):
+def print_cluster(servers: Dict[str, List[OpenStackVMInfo]], vh: ValueHolder = None, ostack: OpenStack = None,
+                  showid:bool = False):
+
   __run_ico = Symbols.PLAY.green()
   __pause_ico = Symbols.PAUSE.yellow()
   __stop_ico = Symbols.STOP.red()
@@ -50,27 +53,33 @@ def print_cluster(servers: Dict[str, List[OpenStackVMInfo]], vh: ValueHolder = N
   if vh is None:
     vh = ValueHolder(3, [50, 30, 15])
 
-  to = TableOutput(
+  columns = [
     TableColumn("", 1, inv_ch=Colors.GREEN.wrap_len()),
     TableColumn("Host name", vh.get(WidthConst.max_fqdn_len)),
     TableColumn("Host IP", 16),
     TableColumn("SSH Key", vh.get(WidthConst.max_key_len)),
     TableColumn("Network name", length=vh.get(WidthConst.max_net_len))
-  )
+  ]
+  if showid:
+    columns.append(TableColumn("ID"))
 
+  to = TableOutput(*columns)
   to.print_header()
   for cluster_name, servers in servers.items():
     servers = sorted(servers, key=lambda x: x.fqdn)
     for server in servers:
-      to.print_row(
+      _row = [
         __state[server.state] if server.state in __state else __stop_ico,
         server.fqdn,
         server.ip_address if server.ip_address else "0.0.0.0",
         server.key_name,
         server.net_name
-      )
+      ]
+      if showid:
+        _row.append(server.id)
+      to.print_row(*_row)
 
-def __init__(conf: Configuration, search_pattern: str, debug: bool, own: bool):
+def __init__(conf: Configuration, search_pattern: str, debug: bool, own: bool, showid: bool):
   vh: ValueHolder = ValueHolder(3)
   def __fake_filter(s: OpenStackVMInfo):
     vh.set_if_bigger(WidthConst.max_fqdn_len, len(s.fqdn))
@@ -82,6 +91,6 @@ def __init__(conf: Configuration, search_pattern: str, debug: bool, own: bool):
   clusters = ostack.get_server_by_cluster(search_pattern=search_pattern, sort=True, only_owned=own,
                                           filter_func=__fake_filter)
 
-  print_cluster(clusters, vh, ostack)
+  print_cluster(clusters, vh, ostack, showid=showid)
 
 

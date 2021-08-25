@@ -33,6 +33,8 @@ __args__ = __module__.arg_builder\
 def get_percents(current: float, fmax: float):
   if fmax == 0:
     return 0
+  elif fmax == -1:
+    return 100
 
   return (current * 100) / fmax
 
@@ -306,11 +308,15 @@ def __init__(conf: Configuration, details: bool, show_clusters: bool, graph: boo
     c_end = Colors.RESET if prc > 80 else ""
     c_start = Colors.RED if prc > 90 else Colors.YELLOW if prc > 80 else ""
 
+    if metric.max_count < 0 :
+      c_start = ""
+      c_end = ""
+
     to.print_row(
       f"{c_start}{metric.name}{c_end}",
       f"{c_start}{metric.used}{c_end}",
-      metric.available,
-      metric.max_count,
+      "-" if metric.available < 0 else metric.available,
+      "-" if metric.max_count < 0 else metric.max_count,
       f"{get_progressbar(prc, c_start)} {c_start}{prc:.1f}%{c_end}"
     )
 

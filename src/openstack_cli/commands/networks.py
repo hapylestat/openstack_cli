@@ -40,7 +40,6 @@ def get_default_network(conf: Configuration, ostack: OpenStack, force: bool = Fa
 def print_networks(ostack: OpenStack, select: bool = False) -> OSNetworkItem or None:
   tbl = TableOutput(
     TableColumn("N.", 3),
-    TableColumn("ID", 36),
     TableColumn("Zone", 10),
     TableColumn("Name", 20),
     TableColumn("CIDR", 15),
@@ -61,7 +60,6 @@ def print_networks(ostack: OpenStack, select: bool = False) -> OSNetworkItem or 
 
     tbl.print_row(
       str(counter),
-      net.network_id,
       ",".join(net.orig_network.availability_zones),
       net.name,
       net.cidr,

@@ -204,7 +204,11 @@ class Configuration(BaseConfiguration):
 
   @property
   def region(self):
-    return "RegionOne"
+    return self._storage.get_property(self._options_table, "region").value
+
+  @region.setter
+  def region(self, value):
+    self._storage.set_text_property(self._options_table, "region", value, encrypted=True)
 
   @property
   def supported_os_names(self) -> List[str]:

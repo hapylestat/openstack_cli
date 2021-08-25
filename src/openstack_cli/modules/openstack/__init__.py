@@ -30,7 +30,8 @@ from openstack_cli.modules.apputils.progressbar import CharacterStyles, Progress
 from openstack_cli.modules.apputils.terminal.colors import Colors
 from openstack_cli.modules.openstack.api_objects import APIProjects, ComputeFlavorItem, ComputeFlavors, ComputeLimits, \
   ComputeServerActionRebootType, ComputeServerActions, ComputeServerInfo, ComputeServers, DiskImageInfo, DiskImages, \
-  LoginResponse, NetworkItem, NetworkLimits, Networks, Subnets, Token, VMCreateResponse, VMKeypairItem, \
+  LoginResponse, NetworkItem, NetworkLimits, Networks, Region, RegionItem, Subnets, Token, VMCreateResponse, \
+  VMKeypairItem, \
   VMKeypairItemValue, VMKeypairs, VolumeV3Limits
 from openstack_cli.modules.openstack.objects import AuthRequestBuilder, AuthRequestType, EndpointTypes, ImageStatus, \
   OSFlavor, OSImageInfo, OSNetwork, OpenStackEndpoints, OpenStackQuotaType, OpenStackQuotas, OpenStackUsers, \
@@ -167,7 +168,7 @@ class OpenStack(object):
       "X-Subject-Token": self._conf.auth_token
     }
 
-    r = self.__request_simple(
+    r = self._request_simple(
       EndpointTypes.identity,
       "/auth/tokens",
       req_type=CurlRequestType.GET,
@@ -198,7 +199,7 @@ class OpenStack(object):
     else:
       data = AuthRequestBuilder.normal_login(self._conf.os_login, self._conf.os_password)
 
-    r = self.__request_simple(
+    r = self._request_simple(
       EndpointTypes.identity,
       "/auth/tokens",
       req_type=CurlRequestType.POST,
@@ -220,10 +221,10 @@ class OpenStack(object):
     l_resp = LoginResponse(serialized_obj=r.from_json())
     if _type == AuthRequestType.UNSCOPED:
       l_resp.token = Token(catalog=[])
+      self.__endpoints__ = None
     else:
       self._conf.user_id = l_resp.token.user.id
-
-    self.__endpoints__ = OpenStackEndpoints(self._conf, l_resp)
+      self.__endpoints__ = OpenStackEndpoints(self._conf, l_resp)
 
     return True
 
@@ -254,7 +255,7 @@ class OpenStack(object):
   def login(self, _type: AuthRequestType = AuthRequestType.SCOPED) -> bool:
     if self.__auth(_type):
       self.__is_auth = True
-      if _type != AuthRequestType.UNSCOPED:
+      if _type != AuthRequestType.UNSCOPED and self._conf.region:
         self.__init_after_auth__()
       return True
     else:
@@ -268,14 +269,14 @@ class OpenStack(object):
       if _frames[i].function == base_f_name:
         return [_frames[i+3], _frames[i+2], _frames[i+1]]
 
-  def __request_simple(self,
-                       endpoint: EndpointTypes,
-                       relative_uri: str,
-                       params: Dict[str, str] = None,
-                       headers: Dict[str, str] = None,
-                       req_type: CurlRequestType = CurlRequestType.GET,
-                       data: str or dict = None
-                       ) -> CURLResponse or None:
+  def _request_simple(self,
+                      endpoint: EndpointTypes,
+                      relative_uri: str,
+                      params: Dict[str, str] = None,
+                      headers: Dict[str, str] = None,
+                      req_type: CurlRequestType = CurlRequestType.GET,
+                      data: str or dict = None
+                      ) -> CURLResponse or None:
 
     if endpoint == EndpointTypes.identity:
       _endpoint: str = f"{self.__login_api}"
@@ -300,7 +301,7 @@ class OpenStack(object):
         _t_delta = time.time_ns() - _t_start
         _t_sec = _t_delta / 1000000000
         _params = ",".join([f"{k}={v}" for k, v in params.items()]) if params else "None"
-        _f_caller = self.__get_origin_frame(self.__request_simple.__name__)
+        _f_caller = self.__get_origin_frame(self._request_simple.__name__)
 
         _chunks = [
           f"[{_t_sec:.2f}s]",
@@ -313,15 +314,15 @@ class OpenStack(object):
         ]
         Console.print_debug("".join(_chunks))
 
-  def __request(self,
-                endpoint: EndpointTypes,
-                relative_uri: str,
-                params: Dict[str, str] = None,
-                req_type: CurlRequestType = CurlRequestType.GET,
-                is_json: bool = False,
-                page_collection_name: str = None,
-                data: str or dict = None
-                ) -> str or dict or None:
+  def _request(self,
+               endpoint: EndpointTypes,
+               relative_uri: str,
+               params: Dict[str, str] = None,
+               req_type: CurlRequestType = CurlRequestType.GET,
+               is_json: bool = False,
+               page_collection_name: str = None,
+               data: str or dict = None
+               ) -> str or dict or None:
 
     if not self.__is_auth and not self.login():
       raise RuntimeError("Not Authorised")
@@ -349,7 +350,7 @@ class OpenStack(object):
         _t_delta = time.time_ns() - _t_start
         _t_sec = _t_delta / 1000000000
         _params = ",".join([f"{k}={v}" for k, v in params.items()]) if params else "None"
-        _f_caller = self.__get_origin_frame(self.__request.__name__)
+        _f_caller = self.__get_origin_frame(self._request.__name__)
 
         _chunks = [
           f"[{_t_sec:.2f}s]",
@@ -372,10 +373,16 @@ class OpenStack(object):
 
     content = r.from_json() if is_json else r.content
 
-    if is_json and page_collection_name and isinstance(content, dict) and "next" in content:
-      uri, _, args = content["next"].partition("?")
+    if is_json and page_collection_name and isinstance(content, dict):
+      if "next" in content and content["next"]:
+        uri, _, args = content["next"].partition("?")
+      elif "links" in content and "next" in content["links"] and content["links"]["next"]:
+        uri, _, args = content["links"]["next"].partition("?")
+      else:
+        return content
+
       params = dict([i.split("=") for i in args.split("&")])
-      next_page = self.__request(
+      next_page = self._request(
         endpoint,
         uri,
         params=params,
@@ -388,8 +395,14 @@ class OpenStack(object):
     return content
 
   @property
+  def regions(self) -> List[RegionItem]:
+    r = self._request(EndpointTypes.identity, "/regions", is_json=True, page_collection_name="regions")
+    return Region(serialized_obj=r).regions
+
+
+  @property
   def projects(self):
-    d = self.__request(
+    d = self._request(
       EndpointTypes.identity,
       "/auth/projects",
       is_json=True,
@@ -417,7 +430,7 @@ class OpenStack(object):
     }
 
     images = DiskImages(
-      serialized_obj=self.__request(
+      serialized_obj=self._request(
         EndpointTypes.image,
         "/images",
         is_json=True,
@@ -502,9 +515,9 @@ class OpenStack(object):
 
   @property
   def quotas(self) -> OpenStackQuotas:
-    limits_obj = ComputeLimits(self.__request(EndpointTypes.compute, "/limits")).limits.absolute
+    limits_obj = ComputeLimits(self._request(EndpointTypes.compute, "/limits")).limits.absolute
 
-    network_obj = NetworkLimits(serialized_obj=self.__request(
+    network_obj = NetworkLimits(serialized_obj=self._request(
       EndpointTypes.network,
       f"/quotas/{self.__endpoints.project_id}/details.json",
       is_json=True
@@ -534,7 +547,7 @@ class OpenStack(object):
     params = {
       "limit": "1000"
     }
-    flavors_raw = self.__request(
+    flavors_raw = self._request(
       EndpointTypes.compute,
       "/flavors/detail",
       is_json=True,
@@ -597,7 +610,7 @@ class OpenStack(object):
     }
 
     params.update(arguments)
-    servers_raw = self.__request(
+    servers_raw = self._request(
       EndpointTypes.compute,
       "/servers/detail",
       is_json=True,
@@ -615,7 +628,7 @@ class OpenStack(object):
     if isinstance(_id, OpenStackVMInfo):
       _id = _id.id
 
-    r = self.__request(
+    r = self._request(
       EndpointTypes.compute,
       f"/servers/{_id}",
       req_type=CurlRequestType.GET,
@@ -638,14 +651,14 @@ class OpenStack(object):
     params = {
       "limit": "1000"
     }
-    networks = Networks(serialized_obj=self.__request(
+    networks = Networks(serialized_obj=self._request(
       EndpointTypes.network,
       "/networks",
       is_json=True,
       params=params,
       page_collection_name="networks"
     )).networks
-    subnets = Subnets(serialized_obj=self.__request(
+    subnets = Subnets(serialized_obj=self._request(
       EndpointTypes.network,
       "/subnets",
       is_json=True,
@@ -725,7 +738,7 @@ class OpenStack(object):
         "length": last_lines
       }
 
-    r = self.__request(
+    r = self._request(
       EndpointTypes.compute,
       f"/servers/{server_id}/action",
       req_type=CurlRequestType.POST,
@@ -751,7 +764,7 @@ class OpenStack(object):
   def delete_image(self, image: DiskImageInfo) -> bool:
     disk_id: str = image.id
     try:
-      r = self.__request(
+      r = self._request(
         EndpointTypes.image,
         f"/images/{disk_id}",
         req_type=CurlRequestType.DELETE
@@ -763,7 +776,7 @@ class OpenStack(object):
   def delete_instance(self, server: OpenStackVMInfo or ComputeServerInfo) -> bool:
     server_id: str = server.id
     try:
-      r = self.__request(
+      r = self._request(
         EndpointTypes.compute,
         f"/servers/{server_id}",
         req_type=CurlRequestType.DELETE
@@ -781,7 +794,7 @@ class OpenStack(object):
       return list(_cache.values())
 
     try:
-      r = self.__request(
+      r = self._request(
         EndpointTypes.compute,
         "/os-keypairs",
         req_type=CurlRequestType.GET,
@@ -803,7 +816,7 @@ class OpenStack(object):
       return _cache[name]
 
     try:
-      r = self.__request(
+      r = self._request(
         EndpointTypes.compute,
         f"/os-keypairs/{name}",
         req_type=CurlRequestType.GET,
@@ -817,7 +830,7 @@ class OpenStack(object):
 
   def delete_keypair(self, name: str) -> bool:
     try:
-      r = self.__request(
+      r = self._request(
         EndpointTypes.compute,
         f"/os-keypairs/{name}",
         req_type=CurlRequestType.DELETE
@@ -836,7 +849,7 @@ class OpenStack(object):
           "public_key": public_key
         }
       }
-      r = self.__request(
+      r = self._request(
         EndpointTypes.compute,
         "/os-keypairs",
         req_type=CurlRequestType.POST,
@@ -859,7 +872,7 @@ class OpenStack(object):
       action_raw = {
         action.value: action_data
       }
-      r = self.__request(
+      r = self._request(
         EndpointTypes.compute,
         f"/servers/{server_id}/action",
         req_type=CurlRequestType.POST,
@@ -935,7 +948,7 @@ echo "@users@: ${{USERS}}"
 
       r = None
       try:
-        r = self.__request(
+        r = self._request(
           EndpointTypes.compute,
           "/servers",
           req_type=CurlRequestType.POST,

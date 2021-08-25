@@ -16,12 +16,10 @@
 import os
 import sys
 import subprocess
-from typing import Dict, List
 
 from openstack_cli.core.shell import shell
 from openstack_cli.modules.apputils.terminal.get_terminal_size import get_terminal_size
-from openstack_cli.modules.apputils.terminal import TableOutput, TableColumn, Console
-from openstack_cli.modules.openstack.objects import OpenStackVMInfo
+from openstack_cli.modules.apputils.terminal import Console
 from openstack_cli.modules.openstack import OpenStack
 from openstack_cli.core.config import Configuration
 from openstack_cli.modules.apputils.discovery import CommandMetaInfo
@@ -37,6 +35,7 @@ __args__ = __module__.arg_builder\
   .add_argument("port", int, "SSH Port", default=22)\
   .add_argument("internal", bool, "Use internal SSH Client", alias="buildin", default=False)
 
+from openstack_cli.modules.utils import host_selector
 
 IS_WIN: bool = sys.platform == "win32"
 
@@ -129,70 +128,12 @@ def _open_console(internal:bool, host: str, port: int = 22, user_name: str = "ro
 
 def __init__(conf: Configuration, name: str, node_number: int, user_name: str, use_password: bool, use_key: str,
              own: bool, port: int, internal: bool):
-  ostack = OpenStack(conf)
-  if name == "None":
-    name = ""
 
   if use_key == "None":
     use_key = None
 
-  if name and node_number == -1:
-    _name, _, _node_number = name.rpartition("-")
-
-    try:
-      node_number = int(_node_number)
-      name = _name
-    except (ValueError, TypeError):
-      pass
-
-  if "." in name:
-    name, _ = name.split(".")
-
-  search_result: Dict[str, List[OpenStackVMInfo]] = ostack.get_server_by_cluster(name, sort=True, only_owned=own)
-  to = TableOutput(
-    TableColumn("Cluster name", 40),
-    print_row_number=True
-  )
-  if len(search_result.keys()) > 1:
-    to.print_header()
-    for cluster_name in search_result.keys():
-      to.print_row(cluster_name)
-
-    selection: int = Console.ask("Choose cluster from the list", int)
-    try:
-      name = list(search_result.keys())[selection:][0]
-    except IndexError:
-      raise ValueError("Wrong selection, please select item within an provided range")
-  elif search_result:
-    name = list(search_result.keys())[0]
-  else:
-    raise ValueError(f"No matching cluster matching pattern'{name}' found")
-
-  nodes: List[OpenStackVMInfo] = search_result[name]
-  if node_number == -1:
-    if len(nodes) > 1:
-      to = TableOutput(
-        TableColumn("IP", 18),
-        TableColumn("Host name", 40),
-
-        print_row_number=True
-      )
-      to.print_header()
-      for node in nodes:
-        to.print_row(node.ip_address, node.fqdn)
-      node_number: int = Console.ask("Choose host from the list", int)
-      if node_number > len(nodes):
-        raise ValueError("Wrong selection, please select item within an provided range")
-    else:
-      node_number = 0
-  else:
-    node_number -= 1    # the node name starts for 1, while list from 0
-
-  try:
-    node: OpenStackVMInfo = nodes[node_number]
-  except IndexError:
-    raise ValueError("Unknown host name, please check the name")
-
+  ostack = OpenStack(conf)
+  node = host_selector(ostack, name, node_number, own)
   print(f"Establishing connection to {node.fqdn}({node.ip_address}) as '{user_name}' user...")
   if use_password:
     _open_console(internal, node.ip_address, port=port, user_name=user_name, password=True)

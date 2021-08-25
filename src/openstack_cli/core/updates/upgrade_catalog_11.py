@@ -42,6 +42,16 @@ class UpgradeCatalog11(UpgradeCatalog):
     osvm = OpenStack(conf)
     so = StatusOutput(additional_errors=osvm.last_errors)
 
+    """
+    Login sequence:
+    ------------------
+    - unscoped loing
+    - set project id
+    - scoped login
+    - fetch region
+    - relogin to fetch API endpoints
+    """
+
     if not conf.project.id:
       print("Fetching available projects....")
       if not osvm.login(_type=AuthRequestType.UNSCOPED):
@@ -62,7 +72,7 @@ class UpgradeCatalog11(UpgradeCatalog):
       for prj in projects:
         to.print_row(prj.id, prj.name, prj.enabled)
 
-      n: int = Console.ask("Select the project number to be used: ", _type=int)
+      n: int = Console.ask("Select the project number to be used", _type=int)
       conf.project = VMProject(id=projects[n].id, name=projects[n].name, domain=projects[n].domain_id)
       osvm.logout()
 
@@ -72,6 +82,26 @@ class UpgradeCatalog11(UpgradeCatalog):
         so.check_issues()
         self.reset()
       raise RuntimeError("Unable to continue")
+
+    if not conf.region:
+      print(f"Fetching available regions for the project '{conf.project.name}'...")
+      to = TableOutput(
+        TableColumn("Id", 33),
+        TableColumn("Descriuption"),
+        print_row_number=True
+      )
+      to.print_header()
+      regions = osvm.regions
+      for region in regions:
+        to.print_row(region.id, region.description)
+
+      n: int = Console.ask("Select the region number to be used", _type=int)
+      conf.region = regions[n].id
+      osvm.logout()
+
+      if not osvm.login():
+        conf.reset()
+        raise RuntimeError("Unable to continue")
 
     if not conf.default_network:
       print("Please select default network for the VM (could be changed via 'conf network' command):")

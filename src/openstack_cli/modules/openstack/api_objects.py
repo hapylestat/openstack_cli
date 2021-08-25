@@ -17,11 +17,25 @@ from enum import Enum
 from typing import List, Dict
 from openstack_cli.modules.apputils.json2obj import SerializableObject
 
+class ApiLink(SerializableObject):
+  next: str = ""
+  self: str = ""
+  previous: str = ""
 
 class Links(SerializableObject):
   href: str = None
   rel: str = None
 
+class RegionItem(SerializableObject):
+  links : ApiLink = None
+  description: str = ""
+  id: str = ""
+  parent_region_id: str = ""
+
+
+class Region(SerializableObject):
+    links: ApiLink = None
+    regions: List[RegionItem] = []
 
 class OpenStackRelation(SerializableObject):
   id: str = None
@@ -167,10 +181,14 @@ class DiskImageLocation(SerializableObject):
 
 
 class DiskImageInfo(SerializableObject):
+  __strict__ = False
   __aliases__ = {
     "owner_specified_shade_sha256": "owner_specified.shade.sha256",
+    "owner_specified_shade_sha256": "owner_specified.openstack.sha256",
     "owner_specified_shade_object": "owner_specified.shade.object",
-    "owner_specified_shade_md5": "owner_specified.shade.md5"
+    "owner_specified_shade_object": "owner_specified.openstack.object",
+    "owner_specified_shade_md5": "owner_specified.shade.md5",
+    "owner_specified_shade_md5": "owner_specified.openstack.md5"
   }
   status: str = None
   name: str = None
